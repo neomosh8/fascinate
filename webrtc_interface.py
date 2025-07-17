@@ -2,10 +2,8 @@
 import asyncio
 import json
 import ssl
-
 import aiohttp
 import base64
-
 import certifi
 import numpy as np
 from typing import Callable, Optional
@@ -21,14 +19,14 @@ class OpenAIRealtimeClient:
         self.websocket = None
         self.audio_callback: Optional[Callable] = None
         self.transcript_callback: Optional[Callable] = None
+        self.user_speech_callback: Optional[Callable] = None
         self.is_speaking = False
         self.conversation_active = False
+        self.ai_speaking = False
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
         try:
-            # For development, we'll use WebSocket instead of full WebRTC
-            # This is simpler for prototype and testing
             url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -37,7 +35,7 @@ class OpenAIRealtimeClient:
             ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
             self.session = aiohttp.ClientSession()
-            self.websocket = await self.session.ws_connect(url, ssl=ssl_ctx,headers=headers)
+            self.websocket = await self.session.ws_connect(url, ssl=ssl_ctx, headers=headers)
 
             print("Connected to OpenAI Realtime API")
 
@@ -74,25 +72,40 @@ class OpenAIRealtimeClient:
         elif event_type == 'response.audio.delta':
             # Handle audio output from AI
             if self.audio_callback:
-                audio_data = base64.b64decode(event.get('delta', ''))
-                self.audio_callback(audio_data)
+                try:
+                    audio_b64 = event.get('delta', '')
+                    if audio_b64:
+                        audio_data = base64.b64decode(audio_b64)
+                        self.audio_callback(audio_data)
+                        self.ai_speaking = True
+                except Exception as e:
+                    print(f"Audio decode error: {e}")
 
         elif event_type == 'response.audio_transcript.delta':
-            # Handle transcript
+            # Handle transcript - clean up display
             if self.transcript_callback:
                 text = event.get('delta', '')
                 self.transcript_callback(text)
 
+        elif event_type == 'response.audio.done':
+            print()  # New line after audio transcript
+            self.ai_speaking = False
+
         elif event_type == 'input_audio_buffer.speech_started':
             self.is_speaking = True
-            print("User started speaking")
+            print("\n👤 User started speaking")
+            if self.user_speech_callback:
+                self.user_speech_callback(True)
 
         elif event_type == 'input_audio_buffer.speech_stopped':
             self.is_speaking = False
-            print("User stopped speaking")
+            print("👤 User stopped speaking")
+            if self.user_speech_callback:
+                self.user_speech_callback(False)
 
         elif event_type == 'response.done':
-            print("AI response complete")
+            print("\n🤖 AI response complete\n")
+            self.ai_speaking = False
 
         elif event_type == 'error':
             print(f"Server error: {event}")
@@ -114,7 +127,7 @@ class OpenAIRealtimeClient:
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 200
+                    "silence_duration_ms": 500
                 }
             }
         }
@@ -126,15 +139,18 @@ class OpenAIRealtimeClient:
         if not self.websocket:
             return
 
-        # Convert audio to base64
-        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+        try:
+            # Convert audio to base64
+            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
 
-        event = {
-            "type": "input_audio_buffer.append",
-            "audio": audio_b64
-        }
+            event = {
+                "type": "input_audio_buffer.append",
+                "audio": audio_b64
+            }
 
-        await self._send_event(event)
+            await self._send_event(event)
+        except Exception as e:
+            print(f"Error sending audio: {e}")
 
     async def update_instructions(self, strategy_prompt: str):
         """Update AI instructions with new strategy"""
@@ -170,6 +186,10 @@ class OpenAIRealtimeClient:
     def set_transcript_callback(self, callback: Callable[[str], None]):
         """Set callback for transcript"""
         self.transcript_callback = callback
+
+    def set_user_speech_callback(self, callback: Callable[[bool], None]):
+        """Set callback for user speech events"""
+        self.user_speech_callback = callback
 
     async def disconnect(self):
         """Disconnect from API"""

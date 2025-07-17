@@ -5,21 +5,23 @@ import os
 from typing import Optional
 import numpy as np
 
-# Import our modules (assuming they're in the same directory)
+# Import our modules
 from eeg_engagement import EngagementProcessor
 from strategy_system import StrategyGenerator, CommunicationStrategy
 from rl_agent import EngagementRL
 from webrtc_interface import OpenAIRealtimeClient
+from audio_handler import AudioHandler
+from custom_eeg_streamer import CustomEEGStreamer
 
-# Import the neocore EEG client
-import sys
-
-sys.path.append('.')  # Add current directory to path
+# For EEG device discovery
 try:
-    from neocore_client import EEGStreamer, find_device
+    import sys
+
+    sys.path.append('.')
+    from neocore_client import find_device
 except ImportError:
     print("Warning: neocore_client not found. EEG will be simulated.")
-    EEGStreamer = None
+    find_device = None
 
 
 class ConversationalAI:
@@ -34,20 +36,24 @@ class ConversationalAI:
         self.strategy_generator = StrategyGenerator()
         self.rl_agent = EngagementRL(self.strategy_generator.get_strategy_count())
         self.realtime_client = OpenAIRealtimeClient(openai_api_key)
+        self.audio_handler = AudioHandler()
 
         # State tracking
         self.conversation_turn = 0
         self.current_strategy: Optional[CommunicationStrategy] = None
         self.last_engagement = 0.5
         self.conversation_active = False
+        self.ai_speaking = False
+        self.user_speaking = False
 
         # EEG simulation mode if hardware not available
-        self.simulate_eeg = EEGStreamer is None
+        self.simulate_eeg = find_device is None
         self.eeg_streamer = None
 
         # Setup callbacks
         self.engagement_processor.set_engagement_callback(self._on_engagement_update)
         self.realtime_client.set_transcript_callback(self._on_ai_transcript)
+        self.realtime_client.set_audio_callback(self._on_ai_audio)
 
         # Load existing RL model if available
         try:
@@ -65,13 +71,21 @@ class ConversationalAI:
         if not await self.realtime_client.connect():
             raise Exception("Failed to connect to OpenAI")
 
+        # Initialize audio with event loop
+        print("Initializing audio system...")
+        self.audio_handler.set_event_loop(asyncio.get_event_loop())
+        self.audio_handler.start_recording()
+        self.audio_handler.start_playback()
+
+        # Start audio processing task
+        asyncio.create_task(self._process_audio_input())
+
         # Initialize EEG
         if not self.simulate_eeg:
             print("Initializing EEG connection...")
             await self._init_eeg()
         else:
             print("⚠️  Running in EEG simulation mode")
-            # Start simulated EEG data
             asyncio.create_task(self._simulate_eeg_data())
 
         print("✅ System initialized successfully!")
@@ -83,24 +97,6 @@ class ConversationalAI:
             device_address = await find_device()
 
             # Create custom EEG streamer that feeds our engagement processor
-            class CustomEEGStreamer(EEGStreamer):
-                def __init__(self, engagement_processor):
-                    super().__init__()
-                    self.engagement_processor = engagement_processor
-
-                def notification_handler(self, sender: int, data: bytearray):
-                    try:
-                        if len(data) < 6:
-                            return
-                        from neocore_client import parse_eeg_packet
-                        ch1_samples, ch2_samples = parse_eeg_packet(data[2:])
-
-                        # Feed to engagement processor instead of plotter
-                        self.engagement_processor.add_eeg_data(ch1_samples, ch2_samples)
-
-                    except Exception as e:
-                        print(f"EEG data parsing error: {e}")
-
             self.eeg_streamer = CustomEEGStreamer(self.engagement_processor)
 
             # Start EEG streaming in background
@@ -112,36 +108,47 @@ class ConversationalAI:
             self.simulate_eeg = True
             asyncio.create_task(self._simulate_eeg_data())
 
+    async def _process_audio_input(self):
+        """Process microphone input (async task)"""
+        while True:
+            try:
+                audio_data = await self.audio_handler.get_audio_input()
+
+                # Only send audio when user might be speaking
+                if self.conversation_active and not self.ai_speaking:
+                    await self.realtime_client.send_audio_chunk(audio_data)
+
+            except Exception as e:
+                print(f"Audio processing error: {e}")
+                await asyncio.sleep(0.1)
+
     async def _simulate_eeg_data(self):
         """Simulate EEG data for testing"""
         while True:
-            # Generate realistic-looking EEG data
             samples_per_chunk = 27
-
-            # Base signal with some noise
             t = np.linspace(0, samples_per_chunk / 250, samples_per_chunk)
 
-            # Simulate different engagement levels based on conversation state
+            # Vary engagement based on conversation state and user speaking
             base_engagement = 0.6 if self.conversation_active else 0.4
+            if self.user_speaking:
+                base_engagement += 0.2  # Higher engagement when user speaks
 
-            # Add some alpha (10Hz) and beta (20Hz) components
             ch1_data = (
-                               base_engagement * np.sin(2 * np.pi * 10 * t) +  # Alpha
-                               (base_engagement * 1.5) * np.sin(2 * np.pi * 20 * t) +  # Beta
-                               0.1 * np.random.randn(samples_per_chunk)  # Noise
-                       ) * 1000  # Scale to microvolts
+                               base_engagement * np.sin(2 * np.pi * 10 * t) +
+                               (base_engagement * 1.5) * np.sin(2 * np.pi * 20 * t) +
+                               0.1 * np.random.randn(samples_per_chunk)
+                       ) * 1000
 
             ch2_data = ch1_data + 0.05 * np.random.randn(samples_per_chunk) * 1000
 
             self.engagement_processor.add_eeg_data(ch1_data.tolist(), ch2_data.tolist())
 
-            await asyncio.sleep(0.1)  # ~10Hz update rate
+            await asyncio.sleep(0.1)
 
     def _on_engagement_update(self, engagement: float):
         """Handle engagement updates from EEG processor"""
         print(f"📊 Engagement: {engagement:.2f}")
 
-        # Update RL agent if conversation is active
         if self.conversation_active and self.conversation_turn > 0:
             self._update_rl_agent(engagement)
 
@@ -149,18 +156,15 @@ class ConversationalAI:
         """Update RL agent with new engagement data"""
         engagement_change = self.engagement_processor.get_engagement_change()
 
-        # Create state
         state = self.rl_agent.get_state(
             current_engagement=current_engagement,
             engagement_change=engagement_change,
             conversation_length=self.conversation_turn
         )
 
-        # Calculate reward and update
         if hasattr(self.rl_agent, 'current_state') and self.rl_agent.last_action is not None:
             reward = self.rl_agent.calculate_reward(engagement_change, current_engagement)
 
-            # Store experience
             self.rl_agent.store_experience(
                 self.rl_agent.current_state,
                 self.rl_agent.last_action,
@@ -169,15 +173,11 @@ class ConversationalAI:
                 done=False
             )
 
-            # Update performance tracking
             self.rl_agent.update_performance(self.rl_agent.last_action, reward)
-
-            # Train the agent
             self.rl_agent.train_step()
 
             print(f"🤖 RL Update - Reward: {reward:.2f}, Epsilon: {self.rl_agent.epsilon:.3f}")
 
-        # Update state
         self.rl_agent.current_state = state
         self.rl_agent.engagement_history.append(current_engagement)
         self.last_engagement = current_engagement
@@ -185,12 +185,25 @@ class ConversationalAI:
     def _on_ai_transcript(self, text: str):
         """Handle AI transcript updates"""
         if text.strip():
-            print(f"🤖 AI: {text}")
+            print(f"{text}", end="", flush=True)  # No "AI:" prefix, cleaner output
+
+    def _on_ai_audio(self, audio_data: bytes):
+        """Handle AI audio output"""
+        # Play AI audio through speakers
+        self.audio_handler.play_audio(audio_data)
+
+    # Add this method to handle when AI starts speaking:
+    def _on_ai_speech_start(self):
+        """Handle when AI starts speaking"""
+        self.ai_speaking = True
+        # Clear any existing audio buffer to avoid overlap
+        self.audio_handler.clear_audio_buffer()
 
     async def start_conversation(self):
         """Start the main conversation loop"""
         print("\n🎙️  Starting conversation...")
         print("The AI will begin. Speak naturally when it's your turn.")
+        print("The conversation will continue for multiple turns.")
         print("Press Ctrl+C to stop.\n")
 
         self.conversation_active = True
@@ -199,9 +212,16 @@ class ConversationalAI:
             # Initial AI greeting with first strategy
             await self._ai_turn_with_strategy()
 
-            # Main conversation loop
+            # Main conversation loop - keep running indefinitely
             while self.conversation_active:
-                await asyncio.sleep(1)  # Keep the loop running
+                # Check for user speech events from OpenAI
+                await asyncio.sleep(1)
+
+                # Auto-advance conversation every 30 seconds if no interaction
+                if hasattr(self, 'last_ai_response_time'):
+                    if time.time() - self.last_ai_response_time > 30:
+                        print("\n⏰ Auto-advancing conversation...")
+                        await self._ai_turn_with_strategy()
 
         except KeyboardInterrupt:
             print("\n\n🛑 Conversation stopped by user")
@@ -211,8 +231,8 @@ class ConversationalAI:
     async def _ai_turn_with_strategy(self):
         """AI speaks with selected strategy"""
         self.conversation_turn += 1
+        self.ai_speaking = True
 
-        # Get current state for RL agent
         current_engagement = self.engagement_processor.current_engagement
         engagement_change = self.engagement_processor.get_engagement_change()
 
@@ -222,12 +242,10 @@ class ConversationalAI:
             conversation_length=self.conversation_turn
         )
 
-        # RL agent selects strategy
         action = self.rl_agent.select_action(state)
         self.rl_agent.last_action = action
         self.rl_agent.current_state = state
 
-        # Get strategy and create prompt
         strategy = self.strategy_generator.get_strategy_by_index(action)
         self.current_strategy = strategy
 
@@ -238,31 +256,27 @@ class ConversationalAI:
         print(f"   Hook: {strategy.hook}")
         print()
 
-        # Update AI instructions with strategy
         strategy_prompt = strategy.to_prompt(self.user_name)
         if self.conversation_turn == 1:
-            # Initial greeting
-            strategy_prompt += "\nThis is the beginning of the conversation. Give a warm greeting and start the conversation naturally."
+            strategy_prompt += "\nThis is the beginning of the conversation. Give a warm greeting and start the conversation naturally. Keep it conversational and ask a question to engage the user."
+        else:
+            strategy_prompt += f"\nThis is turn {self.conversation_turn} of our conversation. Build on the previous discussion and keep the conversation flowing naturally."
 
         await self.realtime_client.update_instructions(strategy_prompt)
-
-        # Trigger AI response
         await self.realtime_client.create_response()
 
-        # Schedule next turn after delay (simulate conversation flow)
-        asyncio.create_task(self._schedule_next_turn())
+        self.last_ai_response_time = time.time()
 
-    async def _schedule_next_turn(self):
-        """Schedule next AI turn after user interaction"""
-        # Wait for user to speak and AI to respond
-        await asyncio.sleep(15)  # Adjust based on conversation pace
-
-        if self.conversation_active:
-            await self._ai_turn_with_strategy()
+        # Wait a bit then mark AI as not speaking
+        await asyncio.sleep(3)
+        self.ai_speaking = False
 
     async def _cleanup(self):
         """Clean up resources"""
         self.conversation_active = False
+
+        # Save engagement plot
+        self.engagement_processor.save_engagement_plot("conversation_engagement.png")
 
         # Save RL model
         try:
@@ -270,6 +284,9 @@ class ConversationalAI:
             print("💾 RL model saved")
         except Exception as e:
             print(f"Failed to save RL model: {e}")
+
+        # Clean up audio
+        self.audio_handler.cleanup()
 
         # Disconnect from OpenAI
         await self.realtime_client.disconnect()
@@ -282,15 +299,13 @@ import os
 load_dotenv()
 # Main execution
 async def main():
-    # Configuration
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     if not OPENAI_API_KEY:
         print("❌ Please set OPENAI_API_KEY environment variable")
         return
 
-    USER_NAME = "friend"  # Can be customized
+    USER_NAME = "friend"
 
-    # Create and run the conversational AI
     ai = ConversationalAI(OPENAI_API_KEY, USER_NAME)
 
     try:
@@ -298,6 +313,8 @@ async def main():
         await ai.start_conversation()
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

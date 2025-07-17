@@ -5,10 +5,11 @@ from scipy import signal
 import asyncio
 from typing import Optional, Callable
 import time
+import matplotlib.pyplot as plt
 
 
 class EngagementProcessor:
-    """Real-time EEG engagement/attention calculation"""
+    """Real-time EEG engagement/attention calculation - NO REAL-TIME PLOTTING"""
 
     def __init__(self, sample_rate: int = 250, window_size: int = 2):
         self.sample_rate = sample_rate
@@ -21,12 +22,14 @@ class EngagementProcessor:
 
         # Engagement metrics
         self.current_engagement = 0.5  # baseline
-        self.engagement_history = deque(maxlen=100)
+        self.engagement_history = deque(maxlen=1000)  # Store more for final plot
+        self.timestamps = deque(maxlen=1000)  # Store timestamps
 
         # Callback for engagement updates
         self.engagement_callback: Optional[Callable] = None
 
         self.last_calculation = time.time()
+        self.start_time = time.time()
 
     def set_engagement_callback(self, callback: Callable[[float], None]):
         """Set callback function to receive engagement updates"""
@@ -43,6 +46,7 @@ class EngagementProcessor:
             if engagement is not None:
                 self.current_engagement = engagement
                 self.engagement_history.append(engagement)
+                self.timestamps.append(time.time() - self.start_time)  # Relative time
 
                 if self.engagement_callback:
                     self.engagement_callback(engagement)
@@ -74,12 +78,10 @@ class EngagementProcessor:
         alpha_power = self._band_power(freqs1, psd_avg, alpha_band)
         beta_power = self._band_power(freqs1, psd_avg, beta_band)
         theta_power = self._band_power(freqs1, psd_avg, theta_band)
-
+        print(alpha_power,beta_power,theta_power)
         # Engagement metric: beta/(alpha + theta) ratio
-        # Higher beta = more focused, lower alpha+theta = less drowsy
         if alpha_power + theta_power > 0:
             engagement_raw = beta_power / (alpha_power + theta_power)
-            # Normalize to 0-1 range using sigmoid
             engagement = 1 / (1 + np.exp(-0.5 * (engagement_raw - 2)))
         else:
             engagement = 0.5
@@ -100,4 +102,29 @@ class EngagementProcessor:
         baseline_avg = np.mean(list(self.engagement_history)[-10:-3])
 
         change = recent_avg - baseline_avg
-        return float(np.clip(change * 5, -1, 1))  # Scale and clip
+        return float(np.clip(change * 5, -1, 1))
+
+    def save_engagement_plot(self, filename: str = "engagement_plot.png"):
+        """Save final engagement plot as PNG"""
+        if len(self.engagement_history) < 10:
+            print("Not enough data for plot")
+            return
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(list(self.timestamps), list(self.engagement_history), 'b-', linewidth=2)
+        plt.xlabel('Time (seconds)')
+        plt.ylabel('Engagement Level')
+        plt.title('EEG Engagement Over Time')
+        plt.grid(True, alpha=0.3)
+        plt.ylim(0, 1)
+
+        # Add average line
+        avg_engagement = np.mean(self.engagement_history)
+        plt.axhline(y=avg_engagement, color='r', linestyle='--',
+                    label=f'Average: {avg_engagement:.2f}')
+        plt.legend()
+
+        plt.tight_layout()
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.close()  # Don't show, just save
+        print(f"📊 Engagement plot saved as {filename}")

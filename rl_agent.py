@@ -1,4 +1,4 @@
-# rl_agent.py
+# rl_agent.py - Updated with better exploration strategy
 import numpy as np
 import torch
 import torch.nn as nn
@@ -28,16 +28,18 @@ class DQN(nn.Module):
 
 
 class EngagementRL:
-    """RL Agent for optimizing communication strategies"""
+    """RL Agent for optimizing communication strategies with better exploration"""
 
     def __init__(self, strategy_count: int, state_size: int = 10):
         self.strategy_count = strategy_count
         self.state_size = state_size
 
-        # Hyperparameters
-        self.epsilon = 1.0  # exploration rate
-        self.epsilon_min = 0.05
-        self.epsilon_decay = 0.995
+        print(f"🤖 RL Agent initialized with {strategy_count} strategies")
+
+        # Better exploration parameters
+        self.epsilon = 0.9  # Start with high exploration
+        self.epsilon_min = 0.15  # Higher minimum to maintain some exploration
+        self.epsilon_decay = 0.995  # Slower decay
         self.learning_rate = 0.001
         self.gamma = 0.8  # discount factor
 
@@ -58,6 +60,10 @@ class EngagementRL:
         # Performance tracking
         self.episode_rewards = []
         self.strategy_performance = {}
+        self.strategy_usage_count = {}  # Track how often each strategy is used
+
+        # Exploration bonuses
+        self.exploration_bonus = 0.1  # Bonus for trying less-used strategies
 
     def get_state(self, current_engagement: float, engagement_change: float,
                   conversation_length: int) -> np.ndarray:
@@ -92,17 +98,64 @@ class EngagementRL:
         return state
 
     def select_action(self, state: np.ndarray) -> int:
-        """Select action using epsilon-greedy policy"""
-        if random.random() < self.epsilon:
-            return random.randint(0, self.strategy_count - 1)
+        """Enhanced action selection with exploration bonuses"""
 
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-        q_values = self.q_network(state_tensor)
-        return q_values.argmax().item()
+        # Epsilon-greedy with exploration bonus
+        if random.random() < self.epsilon:
+            # Exploration: prefer less-used strategies
+            return self._exploration_selection()
+        else:
+            # Exploitation: use Q-network
+            state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            q_values = self.q_network(state_tensor)
+
+            # Add exploration bonus to Q-values
+            q_values_with_bonus = q_values.clone()
+            for action in range(self.strategy_count):
+                usage_count = self.strategy_usage_count.get(action, 0)
+                # Bonus decreases with usage count
+                bonus = self.exploration_bonus * (1.0 / (usage_count + 1))
+                q_values_with_bonus[0][action] += bonus
+
+            action = q_values_with_bonus.argmax().item()
+
+        # Track usage
+        self.strategy_usage_count[action] = self.strategy_usage_count.get(action, 0) + 1
+
+        # Ensure action is within valid range
+        action = action % self.strategy_count
+
+        print(f"🎯 Selected strategy {action} (ε={self.epsilon:.3f}, usage={self.strategy_usage_count.get(action, 0)})")
+
+        return action
+
+    def _exploration_selection(self) -> int:
+        """Smart exploration that prefers less-used strategies"""
+        # Calculate inverse usage weights
+        total_conversations = sum(self.strategy_usage_count.values()) or 1
+
+        # Create weights favoring less-used strategies
+        weights = []
+        for action in range(self.strategy_count):
+            usage_count = self.strategy_usage_count.get(action, 0)
+            # Higher weight for less-used strategies
+            weight = 1.0 / (usage_count + 1)
+            weights.append(weight)
+
+        # Normalize weights
+        weights = np.array(weights)
+        weights = weights / weights.sum()
+
+        # Sample based on weights
+        action = np.random.choice(self.strategy_count, p=weights)
+
+        return action
 
     def store_experience(self, state: np.ndarray, action: int, reward: float,
                          next_state: np.ndarray, done: bool):
         """Store experience in replay buffer"""
+        # Ensure action is within bounds
+        action = action % self.strategy_count
         self.memory.append((state, action, reward, next_state, done))
 
     def calculate_reward(self, engagement_change: float, current_engagement: float) -> float:
@@ -122,6 +175,8 @@ class EngagementRL:
 
     def update_performance(self, action: int, reward: float):
         """Update strategy performance tracking"""
+        action = action % self.strategy_count
+
         if action not in self.strategy_performance:
             self.strategy_performance[action] = 0.0
 
@@ -153,9 +208,30 @@ class EngagementRL:
         loss.backward()
         self.optimizer.step()
 
-        # Decay epsilon
+        # Decay epsilon more slowly
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
+
+    def get_strategy_stats(self):
+        """Get statistics about strategy usage"""
+        total_usage = sum(self.strategy_usage_count.values())
+        if total_usage == 0:
+            return "No strategies used yet"
+
+        # Find most and least used strategies
+        most_used = max(self.strategy_usage_count.items(), key=lambda x: x[1])
+        least_used_actions = [a for a in range(self.strategy_count)
+                              if a not in self.strategy_usage_count]
+
+        unused_count = len(least_used_actions)
+
+        return {
+            'total_strategies': self.strategy_count,
+            'strategies_tried': len(self.strategy_usage_count),
+            'strategies_unused': unused_count,
+            'most_used': most_used,
+            'total_usage': total_usage
+        }
 
     def save_model(self, filepath: str):
         """Save the trained model"""
@@ -164,6 +240,7 @@ class EngagementRL:
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
             'strategy_performance': self.strategy_performance,
+            'strategy_usage_count': self.strategy_usage_count,
             'episode_rewards': self.episode_rewards
         }, filepath)
 
@@ -173,7 +250,13 @@ class EngagementRL:
             checkpoint = torch.load(filepath, map_location=self.device)
             self.q_network.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.epsilon = checkpoint.get('epsilon', self.epsilon)
+
+            # Reset exploration for continued learning
+            self.epsilon = max(checkpoint.get('epsilon', 0.9), 0.3)  # Reset to at least 0.3
             self.strategy_performance = checkpoint.get('strategy_performance', {})
+            self.strategy_usage_count = checkpoint.get('strategy_usage_count', {})
             self.episode_rewards = checkpoint.get('episode_rewards', [])
-            print(f"Model loaded from {filepath}")
+
+            stats = self.get_strategy_stats()
+            print(f"Model loaded - tried {stats['strategies_tried']}/{stats['total_strategies']} strategies")
+            print(f"🔄 Reset epsilon to {self.epsilon:.3f} for continued exploration")

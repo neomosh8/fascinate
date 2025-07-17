@@ -62,7 +62,7 @@ class OpenAIRealtimeClient:
                 break
 
     async def _handle_server_event(self, event: dict):
-        """Handle server events"""
+        """Handle server events - enhanced with audio completion tracking"""
         event_type = event.get('type')
 
         if event_type == 'session.created':
@@ -81,31 +81,19 @@ class OpenAIRealtimeClient:
                 except Exception as e:
                     print(f"Audio decode error: {e}")
 
-        elif event_type == 'response.audio_transcript.delta':
-            # Handle transcript - clean up display
-            if self.transcript_callback:
-                text = event.get('delta', '')
-                self.transcript_callback(text)
-
         elif event_type == 'response.audio.done':
             print()  # New line after audio transcript
             self.ai_speaking = False
-
-        elif event_type == 'input_audio_buffer.speech_started':
-            self.is_speaking = True
-            print("\n👤 User started speaking")
-            if self.user_speech_callback:
-                self.user_speech_callback(True)
-
-        elif event_type == 'input_audio_buffer.speech_stopped':
-            self.is_speaking = False
-            print("👤 User stopped speaking")
-            if self.user_speech_callback:
-                self.user_speech_callback(False)
+            # NEW: Notify about audio completion
+            if hasattr(self, 'audio_complete_callback') and self.audio_complete_callback:
+                self.audio_complete_callback()
 
         elif event_type == 'response.done':
             print("\n🤖 AI response complete\n")
             self.ai_speaking = False
+            # NEW: Also notify here as backup
+            if hasattr(self, 'audio_complete_callback') and self.audio_complete_callback:
+                self.audio_complete_callback()
 
         elif event_type == 'error':
             print(f"Server error: {event}")
@@ -197,3 +185,7 @@ class OpenAIRealtimeClient:
             await self.websocket.close()
         if self.session:
             await self.session.close()
+
+    def set_audio_complete_callback(self, callback: Callable[[], None]):
+        """Set callback for when audio playback is complete"""
+        self.audio_complete_callback = callback

@@ -53,6 +53,7 @@ class ConversationalAI:
         self.interrupt_start = None
         self.last_user_audio_time = 0
         self.interrupt_threshold = 1.0
+        self.interrupt_level = 700
 
         # EEG simulation mode if hardware not available
         self.simulate_eeg = find_device is None
@@ -126,10 +127,17 @@ class ConversationalAI:
         if not self.conversation_active:
             return False
 
+        # Determine audio level for interrupt detection
+        audio_level = np.max(np.abs(np.frombuffer(audio_data, dtype=np.int16)))
+
         now = time.time()
         self.last_user_audio_time = now
 
         if self.ai_speaking:
+            # Ignore quiet feedback from the speaker
+            if audio_level < self.interrupt_level:
+                return False
+
             # User is talking while AI speaks
             if self.interrupt_start is None:
                 self.interrupt_start = now
@@ -160,18 +168,26 @@ class ConversationalAI:
 
     async def _monitor_audio_debug(self):
         """Monitor audio system for debugging"""
-        while self.conversation_active:
+        while True:
             await asyncio.sleep(10)  # Every 10 seconds
 
+            if not self.conversation_active:
+                continue
+
             stats = self.audio_handler.get_debug_stats()
-            print(f"🎤 Audio Debug: captured={stats['chunks_captured']}, "
-                  f"sent={stats['chunks_sent']}, "
-                  f"last_audio={stats['last_audio_ago']:.1f}s ago" if stats['last_audio_ago'] else "never")
+            print(
+                f"🎤 Audio Debug: captured={stats['chunks_captured']}, "
+                f"sent={stats['chunks_sent']}, "
+                f"last_audio={stats['last_audio_ago']:.1f}s ago" if stats['last_audio_ago'] else "never"
+            )
 
     async def _monitor_user_interrupt(self):
         """Resume playback if user stops speaking before threshold"""
-        while self.conversation_active:
+        while True:
             await asyncio.sleep(0.1)
+
+            if not self.conversation_active:
+                continue
 
             if self.interrupt_start and time.time() - self.last_user_audio_time > 0.5:
                 # User stopped quickly - resume playback
@@ -204,12 +220,15 @@ class ConversationalAI:
 
     async def _monitor_audio_status(self):
         """Monitor audio buffer status"""
-        while self.conversation_active:
+        while True:
             await asyncio.sleep(2)  # Check every 2 seconds
+
+            if not self.conversation_active:
+                continue
 
             if hasattr(self.audio_handler, 'get_buffer_status'):
                 status = self.audio_handler.get_buffer_status()
-                if status.get('buffered_duration', 0) > 0.1:  # Only show if there's significant audio
+                if status.get('buffered_duration', 0) > 0.1:
                     print(f"\n🔊 Buffer: {status['buffered_duration']:.1f}s")
 
     def _on_engagement_update(self, engagement: float):
@@ -273,6 +292,7 @@ class ConversationalAI:
     def _on_ai_audio_complete(self):
         """Called when AI audio playback is complete"""
         self.engagement_tracker.on_audio_playback_complete()
+        self.audio_handler.resume_playback()
         self.ai_speaking = False
         self.interrupt_buffer.clear()
         self.interrupt_start = None

@@ -1,7 +1,7 @@
 """Text-to-speech using ElevenLabs API."""
 
 import asyncio
-from typing import Optional
+from typing import Optional, Tuple
 import io
 import pygame
 from elevenlabs import ElevenLabs

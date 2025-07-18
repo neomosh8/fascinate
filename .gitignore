@@ -5,3 +5,10 @@
 *.pth
 *.png
 *.pth
+/audio/__pycache__
+/conversation/__pycache__
+/core/__pycache__
+/eeg/__pycache__
+/rl/__pycache__
+/ui/__pycache__
+/utils/__pycache__

@@ -1,7 +1,7 @@
 """EEG device connection and data management."""
 
 import asyncio
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 import numpy as np
 from collections import deque
 import sys

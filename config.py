@@ -17,7 +17,7 @@ ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 WHISPER_MODEL = "gpt-4o-transcribe"
 GPT_MODEL = "gpt-4.1"
 ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # Default voice
-TTS_MODEL = "eleven_multilingual_v2"
+TTS_MODEL = "eleven_flash_v2_5"
 
 # EEG Configuration
 EEG_SAMPLE_RATE = 250  # Hz

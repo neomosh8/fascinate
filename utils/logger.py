@@ -47,3 +47,16 @@ class ConversationLogger:
 
     def debug(self, message: str):
         self.logger.debug(message)
+
+    def log_session_summary(self, summary_data: dict):
+        """Log session summary with performance metrics."""
+        self.session_data["summary"] = summary_data
+        self.session_data["end_time"] = datetime.now().isoformat()
+        self._save_session()
+
+        # Also create a separate summary file
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        summary_file = self.log_dir / f"summary_{timestamp}.json"
+
+        with open(summary_file, 'w') as f:
+            json.dump(summary_data, f, indent=2, default=str)

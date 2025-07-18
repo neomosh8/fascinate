@@ -82,7 +82,12 @@ class ConversationUI:
         # Bottom frame for controls
         control_frame = ttk.Frame(self.root)
         control_frame.pack(fill=tk.X, padx=10, pady=10)
-
+        self.summary_button = ttk.Button(
+            control_frame,
+            text="Show Summary",
+            command=self._show_session_summary
+        )
+        self.summary_button.pack(side=tk.RIGHT, padx=10)
         # Hold-to-speak button
         self.speak_button = tk.Button(
             control_frame,
@@ -213,9 +218,95 @@ class ConversationUI:
 
     def _stop_session(self):
         """Stop the conversation session."""
+        if self.orchestrator.turn_count > 0:
+            # Show summary before closing
+            self._show_session_summary()
+
         self.orchestrator.stop()
-        self.root.quit()
+        self.root.after(2000, self.root.quit)  # Give time for summary window
 
     def run(self):
         """Run the UI."""
         self.root.mainloop()
+
+    # Add this method to the ConversationUI class
+    def _show_session_summary(self):
+        """Show session summary in a new window."""
+        summary = self.orchestrator.get_session_summary()
+
+        # Create summary window
+        summary_window = tk.Toplevel(self.root)
+        summary_window.title("Session Summary")
+        summary_window.geometry("600x500")
+
+        # Create scrolled text widget
+        summary_text = scrolledtext.ScrolledText(
+            summary_window,
+            wrap=tk.WORD,
+            font=('Courier', 10)
+        )
+        summary_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Format summary text
+        summary_content = self._format_summary_text(summary)
+        summary_text.insert(tk.END, summary_content)
+        summary_text.config(state=tk.DISABLED)
+
+        # Add close button
+        close_button = ttk.Button(
+            summary_window,
+            text="Close",
+            command=summary_window.destroy
+        )
+        close_button.pack(pady=10)
+
+    def _format_summary_text(self, summary: dict) -> str:
+        """Format summary dictionary as readable text."""
+        text = "SESSION SUMMARY\n" + "=" * 50 + "\n\n"
+
+        # Session info
+        session_info = summary["session_info"]
+        text += f"Total Turns: {session_info['total_turns']}\n"
+        text += f"Session Duration: {session_info['session_duration']:.1f} seconds\n"
+        text += f"Final Engagement: {session_info['final_engagement']:.3f}\n\n"
+
+        # RL Performance
+        rl_perf = summary["rl_performance"]
+        if "error" not in rl_perf:
+            text += f"TOTAL REWARD: {rl_perf['total_reward']:.2f}\n"
+            text += f"AVERAGE REWARD: {rl_perf['average_reward']:.3f}\n\n"
+
+            # Best strategy - Fixed to use dot notation
+            best = rl_perf["best_strategy"]
+            text += "🏆 WINNING STRATEGY:\n"
+            text += f"   Tone: {best['strategy'].tone}\n"
+            text += f"   Topic: {best['strategy'].topic}\n"
+            text += f"   Emotion: {best['strategy'].emotion}\n"
+            text += f"   Hook: {best['strategy'].hook}\n"
+            text += f"   Average Reward: {best['average_reward']:.3f}\n"
+            text += f"   Used {best['usage_count']} times\n\n"
+
+            # Top strategies - Fixed to use dot notation
+            text += "🏅 TOP 5 STRATEGIES:\n"
+            for i, strategy_info in enumerate(rl_perf["top_strategies"][:5], 1):
+                s = strategy_info["strategy"]
+                text += f"   {i}. {s.tone}/{s.topic}/{s.emotion}/{s.hook}\n"
+                text += f"      Avg Reward: {strategy_info['average_reward']:.3f} "
+                text += f"(used {strategy_info['usage_count']} times)\n"
+
+            text += "\n"
+
+            # Learning progress
+            learning = rl_perf["learning_progress"]
+            text += "📈 LEARNING PROGRESS:\n"
+            text += f"   Early Average Reward: {learning['early_average_reward']:.3f}\n"
+            text += f"   Recent Average Reward: {learning['recent_average_reward']:.3f}\n"
+            text += f"   Improvement: {learning['improvement']:.3f}\n\n"
+
+            # Exploration stats
+            exploration = rl_perf["exploration_stats"]
+            text += "🔍 EXPLORATION:\n"
+            text += f"   Strategies Tried: {exploration['strategies_tried']}/{exploration['total_strategies']}\n"
+            text += f"   Final Epsilon: {exploration['final_epsilon']:.3f}\n"
+
+        return text

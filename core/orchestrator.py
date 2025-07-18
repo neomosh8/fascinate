@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict
 from dataclasses import dataclass
 
 import numpy as np
@@ -178,6 +178,7 @@ class ConversationOrchestrator:
     async def run_session(self, client):
         """Run the main conversation session."""
         try:
+            self.session_start_time = time.time()  # Add this line
             self.event_loop = asyncio.get_event_loop()
 
             # Start EEG streaming
@@ -207,8 +208,13 @@ class ConversationOrchestrator:
         self.is_running = False
         self.tts.stop()
 
+    # Update the cleanup method
     def cleanup(self):
         """Clean up resources."""
+        # Print session summary before cleanup
+        if self.turn_count > 0:
+            self.print_session_summary()
+
         self.stt.cleanup()
         self.tts.cleanup()
 
@@ -217,3 +223,97 @@ class ConversationOrchestrator:
         save_path = Path("models")
         save_path.mkdir(exist_ok=True)
         self.rl_agent.save(save_path / "q_table.pkl")
+
+        # Save session summary to file
+        summary = self.get_session_summary()
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        summary_path = save_path / f"session_summary_{timestamp}.json"
+
+        import json
+
+        # Custom serializer for Strategy objects
+        def serialize_object(obj):
+            if hasattr(obj, '__dict__'):
+                return obj.__dict__
+            elif hasattr(obj, 'tone'):  # Strategy object
+                return {
+                    'tone': obj.tone,
+                    'topic': obj.topic,
+                    'emotion': obj.emotion,
+                    'hook': obj.hook,
+                    'index': obj.index
+                }
+            return str(obj)
+
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2, default=serialize_object)
+
+        print(f"\nSession summary saved to: {summary_path}")
+
+    def get_session_summary(self) -> Dict:
+        """Generate comprehensive session summary."""
+        performance_summary = self.rl_agent.get_performance_summary()
+
+        return {
+            "session_info": {
+                "total_turns": self.turn_count,
+                "session_duration": time.time() - getattr(self, 'session_start_time', time.time()),
+                "final_engagement": self.last_engagement
+            },
+            "rl_performance": performance_summary,
+            "engagement_stats": {
+                "current_engagement": self.engagement_scorer.current_engagement,
+                "baseline_collected": getattr(self.engagement_scorer, 'baseline_collected', False)
+            }
+        }
+
+    def print_session_summary(self):
+        """Print detailed session summary to console."""
+        summary = self.get_session_summary()
+
+        print("\n" + "=" * 60)
+        print("SESSION SUMMARY")
+        print("=" * 60)
+
+        # Session info
+        session_info = summary["session_info"]
+        print(f"Total Turns: {session_info['total_turns']}")
+        print(f"Session Duration: {session_info['session_duration']:.1f} seconds")
+        print(f"Final Engagement: {session_info['final_engagement']:.3f}")
+
+        # RL Performance
+        rl_perf = summary["rl_performance"]
+        if "error" not in rl_perf:
+            print(f"\nTOTAL REWARD: {rl_perf['total_reward']:.2f}")
+            print(f"AVERAGE REWARD: {rl_perf['average_reward']:.3f}")
+
+            # Best strategy - Fixed to use dot notation
+            best = rl_perf["best_strategy"]
+            print(f"\n🏆 WINNING STRATEGY:")
+            print(f"   Strategy: {best['strategy'].tone} tone, {best['strategy'].topic} topic")
+            print(f"             {best['strategy'].emotion} emotion, {best['strategy'].hook} hook")
+            print(f"   Average Reward: {best['average_reward']:.3f}")
+            print(f"   Used {best['usage_count']} times")
+
+            # Top strategies - Fixed to use dot notation
+            print(f"\n🏅 TOP 5 STRATEGIES:")
+            for i, strategy_info in enumerate(rl_perf["top_strategies"][:5], 1):
+                s = strategy_info["strategy"]
+                print(f"   {i}. {s.tone}/{s.topic}/{s.emotion}/{s.hook}")
+                print(f"      Avg Reward: {strategy_info['average_reward']:.3f} "
+                      f"(used {strategy_info['usage_count']} times)")
+
+            # Learning progress
+            learning = rl_perf["learning_progress"]
+            print(f"\n📈 LEARNING PROGRESS:")
+            print(f"   Early Average Reward: {learning['early_average_reward']:.3f}")
+            print(f"   Recent Average Reward: {learning['recent_average_reward']:.3f}")
+            print(f"   Improvement: {learning['improvement']:.3f}")
+
+            # Exploration stats
+            exploration = rl_perf["exploration_stats"]
+            print(f"\n🔍 EXPLORATION:")
+            print(f"   Strategies Tried: {exploration['strategies_tried']}/{exploration['total_strategies']}")
+            print(f"   Final Epsilon: {exploration['final_epsilon']:.3f}")
+
+        print("=" * 60)

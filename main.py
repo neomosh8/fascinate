@@ -49,6 +49,10 @@ class ConversationalAI:
         self.conversation_active = False
         self.ai_speaking = False
         self.user_speaking = False
+        self.interrupt_buffer = bytearray()
+        self.interrupt_start = None
+        self.last_user_audio_time = 0
+        self.interrupt_threshold = 1.0
 
         # EEG simulation mode if hardware not available
         self.simulate_eeg = find_device is None
@@ -85,8 +89,9 @@ class ConversationalAI:
         self.audio_handler.start_recording()
         self.audio_handler.start_playback()
 
-        # Start monitoring task
+        # Start monitoring tasks
         asyncio.create_task(self._monitor_audio_debug())
+        asyncio.create_task(self._monitor_user_interrupt())
 
         # Initialize EEG
         if not self.simulate_eeg:
@@ -117,12 +122,41 @@ class ConversationalAI:
             asyncio.create_task(self._simulate_eeg_data())
 
     async def _send_audio_to_openai(self, audio_data: bytes):
-        """Send audio data to OpenAI - only when appropriate"""
-        # Only send when not AI speaking and conversation is active
-        if self.conversation_active and not self.ai_speaking:
-            await self.realtime_client.send_audio_chunk(audio_data)
-            return True
-        return False
+        """Send audio data to OpenAI - pause playback if AI speaking"""
+        if not self.conversation_active:
+            return False
+
+        now = time.time()
+        self.last_user_audio_time = now
+
+        if self.ai_speaking:
+            # User is talking while AI speaks
+            if self.interrupt_start is None:
+                self.interrupt_start = now
+                self.interrupt_buffer = bytearray()
+                self.audio_handler.pause_playback()
+
+            self.interrupt_buffer.extend(audio_data)
+
+            if now - self.interrupt_start >= self.interrupt_threshold:
+                # Drop remaining AI audio and forward user speech
+                self.audio_handler.clear_audio_buffer()
+                self.audio_handler.resume_playback()
+                self.ai_speaking = False
+                await self.realtime_client.send_audio_chunk(bytes(self.interrupt_buffer))
+                self.interrupt_buffer.clear()
+                self.interrupt_start = None
+                return True
+            return False
+
+        # AI not speaking - send immediately
+        if self.interrupt_buffer:
+            self.interrupt_buffer.clear()
+            self.interrupt_start = None
+            self.audio_handler.resume_playback()
+
+        await self.realtime_client.send_audio_chunk(audio_data)
+        return True
 
     async def _monitor_audio_debug(self):
         """Monitor audio system for debugging"""
@@ -133,6 +167,17 @@ class ConversationalAI:
             print(f"🎤 Audio Debug: captured={stats['chunks_captured']}, "
                   f"sent={stats['chunks_sent']}, "
                   f"last_audio={stats['last_audio_ago']:.1f}s ago" if stats['last_audio_ago'] else "never")
+
+    async def _monitor_user_interrupt(self):
+        """Resume playback if user stops speaking before threshold"""
+        while self.conversation_active:
+            await asyncio.sleep(0.1)
+
+            if self.interrupt_start and time.time() - self.last_user_audio_time > 0.5:
+                # User stopped quickly - resume playback
+                self.audio_handler.resume_playback()
+                self.interrupt_buffer.clear()
+                self.interrupt_start = None
 
     async def _simulate_eeg_data(self):
         """Simulate EEG data for testing"""
@@ -229,6 +274,8 @@ class ConversationalAI:
         """Called when AI audio playback is complete"""
         self.engagement_tracker.on_audio_playback_complete()
         self.ai_speaking = False
+        self.interrupt_buffer.clear()
+        self.interrupt_start = None
 
     def _on_ai_transcript(self, text: str):
         """Handle AI transcript updates"""

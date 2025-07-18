@@ -40,6 +40,7 @@ class AudioHandler:
         # Control
         self.recording = False
         self.playing = False
+        self.paused = False
         self.loop = None
 
         # Streams
@@ -106,6 +107,24 @@ class AudioHandler:
         except Exception as e:
             print(f"❌ Failed to start speaker: {e}")
             self.playing = False
+
+    def pause_playback(self):
+        """Temporarily pause audio playback"""
+        if self.output_stream and self.playing and not self.paused:
+            try:
+                self.output_stream.stop()
+                self.paused = True
+            except Exception as e:
+                print(f"❌ Failed to pause playback: {e}")
+
+    def resume_playback(self):
+        """Resume playback after being paused"""
+        if self.output_stream and self.paused:
+            try:
+                self.output_stream.start()
+                self.paused = False
+            except Exception as e:
+                print(f"❌ Failed to resume playback: {e}")
 
     def _input_callback(self, indata, frames, time_info, status):
         """Enhanced input callback with debugging"""

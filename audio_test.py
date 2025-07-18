@@ -1,45 +1,53 @@
-# audio_test.py - Test audio system independently
-import pyaudio
+# audio_debug.py - Standalone audio testing
+import sounddevice as sd
+import numpy as np
 import time
+import base64
 
 
-def test_audio_system():
-    """Test if audio system works properly"""
-    print("Testing audio system...")
+def test_microphone():
+    """Test if microphone is working"""
+    print("🎤 Testing microphone...")
 
-    audio = pyaudio.PyAudio()
+    # List available audio devices
+    print("\n📱 Available audio devices:")
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        if device['max_input_channels'] > 0:
+            print(f"  {i}: {device['name']} (input)")
 
-    # Test output device
+    # Test recording
+    print(f"\n🔊 Default input device: {sd.query_devices(sd.default.device[0])['name']}")
+
+    duration = 3  # seconds
+    sample_rate = 24000
+
+    print(f"Recording for {duration} seconds...")
     try:
-        stream = audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=24000,
-            output=True,
-            frames_per_buffer=1024
-        )
+        audio_data = sd.rec(int(duration * sample_rate),
+                            samplerate=sample_rate,
+                            channels=1,
+                            dtype='int16')
+        sd.wait()  # Wait for recording to complete
 
-        print("✅ Audio output device working")
+        # Check if we got actual audio
+        max_value = np.max(np.abs(audio_data))
+        print(f"Max audio value: {max_value}")
 
-        # Generate a test tone
-        import numpy as np
-        duration = 1  # seconds
-        sample_rate = 24000
-        frequency = 440  # A4 note
+        if max_value > 100:  # Arbitrary threshold
+            print("✅ Microphone is working - audio detected!")
 
-        t = np.linspace(0, duration, int(sample_rate * duration))
-        tone = (np.sin(2 * np.pi * frequency * t) * 0.3 * 32767).astype(np.int16)
+            # Test conversion to base64 (what OpenAI expects)
+            audio_bytes = audio_data.astype(np.int16).tobytes()
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+            print(f"✅ Audio conversion successful - {len(audio_b64)} chars")
 
-        print("Playing test tone...")
-        stream.write(tone.tobytes())
-
-        stream.close()
+        else:
+            print("❌ No audio detected - check microphone permissions/settings")
 
     except Exception as e:
-        print(f"❌ Audio output test failed: {e}")
-
-    audio.terminate()
+        print(f"❌ Recording failed: {e}")
 
 
 if __name__ == "__main__":
-    test_audio_system()
+    test_microphone()

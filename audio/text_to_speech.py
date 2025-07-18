@@ -1,13 +1,13 @@
 """Text-to-speech using OpenAI API."""
 
 import asyncio
-import re
 from typing import Optional, Tuple
 import io
 import pygame
 from openai import OpenAI
 
-from config import OPENAI_API_KEY
+from config import OPENAI_API_KEY, TTS_VOICE
+from rl.strategy import Strategy
 
 
 class TextToSpeech:
@@ -18,97 +18,36 @@ class TextToSpeech:
         pygame.mixer.init()
         self.is_playing = False
 
-        # Default voice - you can make this configurable
-        self.default_voice = "coral"
+    def _strategy_to_instructions(self, strategy: Strategy) -> str:
+        """Convert strategy to TTS instructions."""
 
-    def _extract_emotions_and_clean_text(self, text: str) -> Tuple[str, str]:
-        """
-        Extract emotion/voice cues from text and create instructions.
-        Returns (cleaned_text, instructions)
-        """
-        # Pattern to match emotions in brackets like [excited], [whispers], etc.
-        emotion_pattern = r'\[([^\]]+)\]'
-        emotions = re.findall(emotion_pattern, text)
+        # Build instruction
+        parts = []
 
-        # Remove emotion brackets from the text
-        cleaned_text = re.sub(emotion_pattern, '', text)
+        parts.append(strategy.tone)
+        parts.append(strategy.emotion)
 
-        # Clean up extra spaces and punctuation
-        cleaned_text = re.sub(r'\s+', ' ', cleaned_text).strip()
 
-        # Convert emotions to natural instructions
-        instructions = self._emotions_to_instructions(emotions)
-
-        return cleaned_text, instructions
-
-    def _emotions_to_instructions(self, emotions: list) -> str:
-        """Convert emotion tags to natural language instructions."""
-        if not emotions:
-            return "Speak in a natural, conversational tone."
-
-        # Map common emotion tags to instructions
-        emotion_mappings = {
-            'excited': 'with excitement and energy',
-            'whispers': 'in a soft, whispering voice',
-            'laughs': 'with a cheerful, laughing tone',
-            'curious': 'with curiosity and interest',
-            'gentle': 'in a gentle, soothing manner',
-            'calm': 'in a calm, relaxed tone',
-            'enthusiastic': 'with enthusiasm and passion',
-            'sarcastic': 'with a hint of sarcasm',
-            'frustrated': 'with slight frustration',
-            'concerned': 'with genuine concern',
-            'joy': 'with joy and happiness',
-            'interest': 'with genuine interest',
-            'surprise': 'with surprise and wonder',
-            'trust': 'with warmth and trust',
-            'anticipation': 'with anticipation and eagerness',
-            'pride': 'with confidence and pride',
-            'gratitude': 'with gratitude and appreciation'
-        }
-
-        # Handle accent instructions
-        accent_pattern = r'strong (\w+) accent'
-
-        instruction_parts = []
-        for emotion in emotions:
-            emotion_lower = emotion.lower().strip()
-
-            # Check for accent patterns
-            accent_match = re.search(accent_pattern, emotion_lower)
-            if accent_match:
-                accent = accent_match.group(1)
-                instruction_parts.append(f'with a subtle {accent} accent')
-            elif emotion_lower in emotion_mappings:
-                instruction_parts.append(emotion_mappings[emotion_lower])
-            else:
-                # For unmapped emotions, create a basic instruction
-                instruction_parts.append(f'in a {emotion_lower} manner')
-
-        if instruction_parts:
-            base_instruction = "Speak " + ", and ".join(instruction_parts[:3])  # Limit to 3 for clarity
-            return base_instruction + ". Keep the delivery natural and conversational."
+        if parts:
+            instruction = f"Speak {' and '.join(parts)}. "
         else:
-            return "Speak in a natural, conversational tone."
+            instruction = "Speak in a natural, conversational tone."
 
-    async def speak(self, text: str, voice: Optional[str] = None) -> Tuple[float, float]:
+        return instruction
+
+    async def speak(self, text: str, strategy: Strategy, voice: Optional[str] = None) -> Tuple[float, float]:
         """
         Convert text to speech and play it.
         Returns (start_time, end_time) for engagement tracking.
         """
-        voice = voice or self.default_voice
+        voice = voice or TTS_VOICE
 
         try:
-            # Extract emotions and clean text
-            cleaned_text, instructions = self._extract_emotions_and_clean_text(text)
-
-            if not cleaned_text.strip():
-                # If no text remains after cleaning, use original
-                cleaned_text = text
-                instructions = "Speak in a natural, conversational tone."
+            # Generate TTS instructions from strategy
+            instructions = self._strategy_to_instructions(strategy)
 
             print(f"TTS Instructions: {instructions}")
-            print(f"TTS Text: {cleaned_text[:100]}...")
+            print(f"TTS Text: {text[:100]}...")
 
             # Generate audio
             start_time = asyncio.get_event_loop().time()
@@ -120,12 +59,12 @@ class TextToSpeech:
                 response = self.client.audio.speech.create(
                     model="gpt-4o-mini-tts",
                     voice=voice,
-                    input=cleaned_text,
+                    input=text,
                     instructions=instructions,
                     response_format="mp3"
                 )
                 return response.content
-
+            print("&&&&", instructions)
             audio_data = await loop.run_in_executor(None, _generate)
 
             # Play audio

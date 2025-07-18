@@ -40,7 +40,7 @@ class ConversationOrchestrator:
         self.gpt = GPTConversation()
         self.eeg_manager = EEGDeviceManager()
         self.engagement_scorer = EngagementScorer()
-        self.event_loop = None  # Add this line
+        self.event_loop = None
 
         # Initialize RL components
         self.strategy_space = StrategySpace(subset_size=100)
@@ -120,9 +120,9 @@ class ConversationOrchestrator:
         if 'update_transcript' in self.ui_callbacks:
             self.ui_callbacks['update_transcript'](f"Assistant: {assistant_text}")
 
-        # 5. Speak response and track engagement
+        # 5. Speak response with strategy and track engagement
         self.logger.info("Speaking response...")
-        tts_start, tts_end = await self.tts.speak(assistant_text)
+        tts_start, tts_end = await self.tts.speak(assistant_text, strategy)  # Pass strategy to TTS
 
         # 6. Get engagement during TTS
         engagement_after = self.engagement_scorer.get_segment_engagement(
@@ -189,7 +189,7 @@ class ConversationOrchestrator:
             if 'update_transcript' in self.ui_callbacks:
                 self.ui_callbacks['update_transcript'](f"Assistant: {greeting}")
 
-            await self.tts.speak(greeting)
+            await self.tts.speak(greeting, strategy)  # Pass strategy to TTS
 
             # Main conversation loop
             while self.is_running:

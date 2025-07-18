@@ -32,10 +32,11 @@ class RLConfig:
     epsilon_min: float = 0.05
 
 # Communication Strategy Components
-TONES = ["friendly", "professional", "enthusiastic", "calm", "curious", "empathetic"]
-TOPICS = ["technology", "nature", "philosophy", "daily life", "creativity", "science"]
-EMOTIONS = ["joy", "interest", "surprise", "trust", "anticipation", "pride", "gratitude"]
-HOOKS = ["question", "story", "fact", "analogy", "challenge"]
+TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic"]
+TOPICS = ["politics", "facts", "story", "controversial", "dad joke", "flirting"]
+EMOTIONS = ["happy", "sad", "serious", "scared", "whisper", "shout out", "laughter"]
+HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look"]
+
 
 # UI Configuration
 WINDOW_WIDTH = 800

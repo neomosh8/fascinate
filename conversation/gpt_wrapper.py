@@ -30,7 +30,7 @@ class GPTConversation:
             "content": f"""You are a conversational assistant designed to keep users engaged.
 {strategy.to_prompt_with_memory()}
 
-Keep responses concise (under 180 tokens).
+Keep responses concise .
 put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""
         })
 

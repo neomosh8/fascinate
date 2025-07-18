@@ -30,7 +30,6 @@ class Strategy:
             f"start with a {self.hook} and weave it naturally into your message. "
             f"Use natural speech patterns with appropriate pauses, emphasis through word choice, "
             f"and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
-            f"Keep responses under 180 tokens and end with something that invites further conversation."
         )
 
     def add_example(self, response: str, engagement_delta: float):

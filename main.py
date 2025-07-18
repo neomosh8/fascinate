@@ -58,9 +58,7 @@ class ConversationalAI:
         self.engagement_processor.set_engagement_callback(self._on_engagement_update)
         self.realtime_client.set_transcript_callback(self._on_ai_transcript)
         self.realtime_client.set_audio_callback(self._on_ai_audio)
-        self.realtime_client.set_audio_complete_callback(
-            lambda: self.engagement_tracker.on_audio_playback_complete()
-        )
+        self.realtime_client.set_audio_complete_callback(self._on_ai_audio_complete)
         # NEW: Set up time-aligned RL updates
         self.engagement_tracker.set_rl_update_callback(self._on_time_aligned_rl_update)
 
@@ -227,6 +225,11 @@ class ConversationalAI:
 
         self.ai_speaking = True
 
+    def _on_ai_audio_complete(self):
+        """Called when AI audio playback is complete"""
+        self.engagement_tracker.on_audio_playback_complete()
+        self.ai_speaking = False
+
     def _on_ai_transcript(self, text: str):
         """Handle AI transcript updates"""
         if text.strip():
@@ -317,10 +320,6 @@ class ConversationalAI:
         await self.realtime_client.create_response()
 
         self.last_ai_response_time = time.time()
-
-        # Wait a bit then mark AI as not speaking
-        await asyncio.sleep(3)
-        self.ai_speaking = False
 
     async def _schedule_next_turn(self):
         """Schedule next AI turn after user interaction"""

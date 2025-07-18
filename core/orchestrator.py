@@ -40,6 +40,7 @@ class ConversationOrchestrator:
         self.gpt = GPTConversation()
         self.eeg_manager = EEGDeviceManager()
         self.engagement_scorer = EngagementScorer()
+        self.event_loop = None  # Add this line
 
         # Initialize RL components
         self.strategy_space = StrategySpace(subset_size=100)
@@ -175,6 +176,8 @@ class ConversationOrchestrator:
     async def run_session(self, client):
         """Run the main conversation session."""
         try:
+            self.event_loop = asyncio.get_event_loop()
+
             # Start EEG streaming
             await self.eeg_manager.start_streaming(client)
             self.is_running = True

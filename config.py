@@ -1,10 +1,15 @@
 """Configuration and constants for the EEG Conversation RL system."""
 
+
 import os
 from dataclasses import dataclass
 from typing import List, Tuple
+from dotenv import load_dotenv
 
-# API Keys (set as environment variables)
+# Load environment variables from .env file
+load_dotenv()
+
+# API Keys (now loaded from .env file)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 

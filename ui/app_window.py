@@ -178,8 +178,29 @@ class ConversationUI:
             # Stop recording and process turn
             audio_data = self.orchestrator.stt.stop_recording()
 
-            # Process in background
-            asyncio.create_task(self._process_turn_async(audio_data))
+            # Submit to the async event loop running in the background thread
+            if hasattr(self.orchestrator, 'event_loop') and self.orchestrator.event_loop:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._process_turn_async(audio_data),
+                    self.orchestrator.event_loop
+                )
+
+                # Optional: Handle the result
+                def handle_result():
+                    try:
+                        future.result(timeout=0.1)  # Non-blocking check
+                        self.status_label.config(text="Ready")
+                    except asyncio.TimeoutError:
+                        # Still processing, check again later
+                        self.root.after(100, handle_result)
+                    except Exception as e:
+                        print(f"Turn processing error: {e}")
+                        self.status_label.config(text="Error - Ready")
+
+                self.root.after(100, handle_result)
+            else:
+                print("No event loop available")
+                self.status_label.config(text="Error - Ready")
 
     async def _process_turn_async(self, audio_data):
         """Process turn in async context."""

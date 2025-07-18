@@ -5,6 +5,6 @@ pygame
 numpy
 scipy
 matplotlib
-tkinter
 bleak
 stable-baselines3
+python-dotenv

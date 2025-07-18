@@ -48,6 +48,11 @@ class ConversationOrchestrator:
         self.strategy_space = StrategySpace(subset_size=100)
         self.rl_agent = QLearningAgent(self.strategy_space)
 
+        # Load any saved strategy memories
+        from pathlib import Path
+        memory_file = Path("models") / "strategy_memory.json"
+        self.strategy_space.load_memory(memory_file)
+
         # State tracking
         self.last_strategy_idx = 0
         self.last_engagement = 0.5
@@ -134,6 +139,9 @@ class ConversationOrchestrator:
         # 7. Calculate reward
         reward = (engagement_after - engagement_before) * 100  # Scale up
         reward = np.tanh(reward)  # Squash to [-1, 1] but preserve sign
+
+        # Let strategy learn from this example
+        strategy.add_example(assistant_text, engagement_after - engagement_before)
 
         # 8. Update RL agent
         next_state_idx = self.rl_agent.state_to_index(
@@ -223,6 +231,9 @@ class ConversationOrchestrator:
         save_path = Path("models")
         save_path.mkdir(exist_ok=True)
         self.rl_agent.save(save_path / "q_table.pkl")
+
+        # Persist strategy examples
+        self.strategy_space.save_memory(save_path / "strategy_memory.json")
 
         # Save session summary to file
         summary = self.get_session_summary()

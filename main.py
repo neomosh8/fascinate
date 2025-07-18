@@ -9,7 +9,7 @@ from engagement_tracker import TimeAlignedEngagementTracker
 # Import our modules
 from eeg_engagement import EngagementProcessor
 from strategy_system import StrategyGenerator, CommunicationStrategy
-from rl_agent import EngagementRL
+from rl_agent_adaptive import AdaptiveEngagementRL
 from webrtc_interface import OpenAIRealtimeClient
 from udio_handler_sounddevice import AudioHandler
 from custom_eeg_streamer import CustomEEGStreamer
@@ -34,7 +34,7 @@ class ConversationalAI:
         # Initialize components
         self.engagement_processor = EngagementProcessor()
         self.strategy_generator = StrategyGenerator()
-        self.rl_agent = EngagementRL(self.strategy_generator.get_strategy_count())
+        self.rl_agent = AdaptiveEngagementRL(self.strategy_generator.get_strategy_count())
         self.realtime_client = OpenAIRealtimeClient(openai_api_key)
         self.audio_handler = AudioHandler()
 
@@ -177,40 +177,41 @@ class ConversationalAI:
 
     def _on_time_aligned_rl_update(self, strategy_index: int, engagement: float,
                                    engagement_change: float, session):
-        """Handle RL update with properly time-aligned data"""
+        """Handle RL update with immediate adaptation"""
         if not self.conversation_active:
             return
 
-        # Create state for the CORRECT strategy
+        # Calculate reward
+        reward = self.rl_agent.calculate_reward(engagement_change, engagement)
+
+        # IMMEDIATE UPDATE - agent adapts right away
+        self.rl_agent.update_performance(strategy_index, reward, engagement)
+
+        # Store experience and train
         state = self.rl_agent.get_state(
             current_engagement=engagement,
             engagement_change=engagement_change,
             conversation_length=self.conversation_turn
         )
 
-        # Calculate reward based on the engagement during this strategy's audio
-        reward = self.rl_agent.calculate_reward(engagement_change, engagement)
-
-        # Store experience for the CORRECT strategy
-        if hasattr(self.rl_agent, 'current_state') and strategy_index is not None:
-            # Find the state when this strategy was selected
-            # For now, use current state as approximation - could be improved
+        if hasattr(self.rl_agent, 'current_state'):
             self.rl_agent.store_experience(
-                state,  # This should ideally be the state when strategy was selected
+                self.rl_agent.current_state,
                 strategy_index,
                 reward,
-                state,  # Next state
+                state,
                 done=False
             )
 
-            # Update performance tracking
-            self.rl_agent.update_performance(strategy_index, reward)
-
-            # Train the agent
+            # Train immediately for fast adaptation
             self.rl_agent.train_step()
 
-            print(f"🤖 TIME-ALIGNED RL Update - Strategy: {strategy_index}, "
-                  f"Reward: {reward:.2f}, Epsilon: {self.rl_agent.epsilon:.3f}")
+        self.rl_agent.current_state = state
+
+        # Show detailed feedback
+        stats = self.rl_agent.get_strategy_stats()
+        print(f"🤖 ADAPTIVE RL Update - Strategy: {strategy_index}, "
+              f"Reward: {reward:.2f}, Hot strategies: {stats['hot_list']}")
 
     def _on_ai_audio(self, audio_data: bytes):
         """Handle AI audio output - track timing"""
@@ -258,58 +259,64 @@ class ConversationalAI:
 
         # main.py - Add strategy monitoring
 
+
     async def _ai_turn_with_strategy(self):
-            """AI speaks with selected strategy - with better strategy tracking"""
-            self.conversation_turn += 1
-            self.ai_speaking = True
+        """AI speaks with selected strategy - with timing tracking"""
+        self.conversation_turn += 1
+        self.ai_speaking = True
 
-            current_engagement = self.engagement_processor.current_engagement
-            engagement_change = self.engagement_processor.get_engagement_change()
+        current_engagement = self.engagement_processor.current_engagement
+        engagement_change = self.engagement_processor.get_engagement_change()
 
-            state = self.rl_agent.get_state(
-                current_engagement=current_engagement,
-                engagement_change=engagement_change,
-                conversation_length=self.conversation_turn
-            )
+        state = self.rl_agent.get_state(
+            current_engagement=current_engagement,
+            engagement_change=engagement_change,
+            conversation_length=self.conversation_turn
+        )
 
-            action = self.rl_agent.select_action(state)
-            strategy = self.strategy_generator.get_strategy_by_index(action)
+        action = self.rl_agent.select_action(state)
+        strategy = self.strategy_generator.get_strategy_by_index(action)
 
-            # Store for tracking
-            self.current_strategy = strategy
-            self.current_strategy_index = action
+        # Store for tracking
+        self.current_strategy = strategy
+        self.current_strategy_index = action
 
-            # NEW: Start tracking this strategy
-            self.engagement_tracker.start_new_strategy(action, strategy)
+        # NEW: Start tracking this strategy
+        self.engagement_tracker.start_new_strategy(action, strategy)
 
-            print(f"\n🎯 Turn {self.conversation_turn} Strategy:")
-            print(f"   Index: {action}")  # Show the actual index
-            print(f"   Tone: {strategy.tone}")
-            print(f"   Topic: {strategy.topic}")
-            print(f"   Emotion: {strategy.emotion}")
-            print(f"   Hook: {strategy.hook}")
+        print(f"\n🎯 Turn {self.conversation_turn} Strategy:")
+        print(f"   Index: {action}")  # Show the actual index
+        print(f"   Tone: {strategy.tone}")
+        print(f"   Topic: {strategy.topic}")
+        print(f"   Emotion: {strategy.emotion}")
+        print(f"   Hook: {strategy.hook}")
 
-            # Show strategy stats every few turns
-            if self.conversation_turn % 3 == 0:
+        # Show strategy stats every few turns with error handling
+        if self.conversation_turn % 3 == 0:
+            try:
                 stats = self.rl_agent.get_strategy_stats()
                 print(f"📈 Strategy Stats: {stats['strategies_tried']}/{stats['total_strategies']} tried, "
                       f"{stats['strategies_unused']} unused")
-            print()
+            except KeyError as e:
+                print(f"📈 Strategy Stats: Error accessing {e}")
+            except Exception as e:
+                print(f"📈 Strategy Stats: Error {e}")
+        print()
 
-            strategy_prompt = strategy.to_prompt(self.user_name)
-            if self.conversation_turn == 1:
-                strategy_prompt += "\nThis is the beginning of the conversation. Give a warm greeting and start the conversation naturally. Keep it conversational and ask a question to engage the user."
-            else:
-                strategy_prompt += f"\nThis is turn {self.conversation_turn} of our conversation. Build on the previous discussion and keep the conversation flowing naturally."
+        strategy_prompt = strategy.to_prompt(self.user_name)
+        if self.conversation_turn == 1:
+            strategy_prompt += "\nThis is the beginning of the conversation. Give a warm greeting and start the conversation naturally. Keep it conversational and ask a question to engage the user."
+        else:
+            strategy_prompt += f"\nThis is turn {self.conversation_turn} of our conversation. Build on the previous discussion and keep the conversation flowing naturally."
 
-            await self.realtime_client.update_instructions(strategy_prompt)
-            await self.realtime_client.create_response()
+        await self.realtime_client.update_instructions(strategy_prompt)
+        await self.realtime_client.create_response()
 
-            self.last_ai_response_time = time.time()
+        self.last_ai_response_time = time.time()
 
-            # Wait a bit then mark AI as not speaking
-            await asyncio.sleep(3)
-            self.ai_speaking = False
+        # Wait a bit then mark AI as not speaking
+        await asyncio.sleep(3)
+        self.ai_speaking = False
 
     async def _schedule_next_turn(self):
         """Schedule next AI turn after user interaction"""

@@ -1,4 +1,4 @@
-# rl_agent_adaptive.py
+# rl_agent_adaptive.py - Complete implementation
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,6 +8,23 @@ from collections import deque
 from typing import Tuple, List
 import pickle
 import os
+
+
+class DQN(nn.Module):
+    """Deep Q-Network for strategy selection"""
+
+    def __init__(self, state_size: int, action_size: int, hidden_size: int = 128):
+        super(DQN, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(state_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, action_size)
+        )
+
+    def forward(self, x):
+        return self.network(x)
 
 
 class AdaptiveEngagementRL:
@@ -57,6 +74,41 @@ class AdaptiveEngagementRL:
         self.last_reward = None
         self.engagement_history = deque(maxlen=20)
 
+        # For compatibility
+        self.epsilon = self.current_epsilon  # For external access
+
+    def get_state(self, current_engagement: float, engagement_change: float,
+                  conversation_length: int) -> np.ndarray:
+        """Create state vector for RL agent"""
+        state = np.zeros(self.state_size)
+
+        # Current metrics
+        state[0] = current_engagement
+        state[1] = engagement_change
+        state[2] = conversation_length / 100.0  # normalize
+
+        # Engagement history features
+        if len(self.engagement_history) > 0:
+            state[3] = np.mean(self.engagement_history)  # avg engagement
+            state[4] = np.std(self.engagement_history)  # engagement variance
+            state[5] = max(self.engagement_history)  # peak engagement
+            state[6] = min(self.engagement_history)  # lowest engagement
+
+        # Recent trend
+        if len(self.engagement_history) >= 5:
+            recent = list(self.engagement_history)[-5:]
+            state[7] = (recent[-1] - recent[0]) / 5.0  # trend slope
+
+        # Strategy performance context
+        if self.last_action is not None:
+            state[8] = self.strategy_performance.get(self.last_action, 0.0)
+
+        # Time of day effect (simple)
+        import time
+        state[9] = (time.time() % 86400) / 86400.0  # normalized time of day
+
+        return state
+
     def select_action(self, state: np.ndarray) -> int:
         """Adaptive action selection - exploits good strategies immediately"""
 
@@ -92,6 +144,9 @@ class AdaptiveEngagementRL:
 
         print(
             f"🎯 {selection_type} strategy {action} (ε={self.current_epsilon:.3f}, hot={hot_count}, cold={cold_count})")
+
+        # Update external epsilon for compatibility
+        self.epsilon = self.current_epsilon
 
         return action
 
@@ -167,6 +222,28 @@ class AdaptiveEngagementRL:
         else:
             return random.randint(0, self.strategy_count - 1)
 
+    def calculate_reward(self, engagement_change: float, current_engagement: float) -> float:
+        """Calculate reward based on engagement metrics"""
+        # Primary reward: engagement improvement
+        reward = engagement_change * 10.0
+
+        # Bonus for maintaining high engagement
+        if current_engagement > 0.7:
+            reward += 2.0
+
+        # Penalty for very low engagement
+        if current_engagement < 0.3:
+            reward -= 1.0
+
+        return reward
+
+    def store_experience(self, state: np.ndarray, action: int, reward: float,
+                         next_state: np.ndarray, done: bool):
+        """Store experience in replay buffer"""
+        # Ensure action is within bounds
+        action = action % self.strategy_count
+        self.memory.append((state, action, reward, next_state, done))
+
     def update_performance(self, action: int, reward: float, engagement: float):
         """Update performance and classify strategies as hot/cold"""
         action = action % self.strategy_count
@@ -174,6 +251,7 @@ class AdaptiveEngagementRL:
         # Update recent tracking
         self.recent_rewards.append(reward)
         self.recent_engagements.append(engagement)
+        self.engagement_history.append(engagement)
 
         # Update strategy performance
         if action not in self.strategy_performance:
@@ -256,13 +334,18 @@ class AdaptiveEngagementRL:
         loss.backward()
         self.optimizer.step()
 
+    # rl_agent_adaptive.py - Update the get_strategy_stats method
+
     def get_strategy_stats(self):
         """Get comprehensive strategy statistics"""
         total_usage = sum(self.strategy_usage_count.values())
+        strategies_tried = len(self.strategy_usage_count)
+        strategies_unused = self.strategy_count - strategies_tried
 
         return {
             'total_strategies': self.strategy_count,
-            'strategies_tried': len(self.strategy_usage_count),
+            'strategies_tried': strategies_tried,
+            'strategies_unused': strategies_unused,  # Add this missing key
             'hot_strategies': len(self.hot_strategies),
             'cold_strategies': len(self.cold_strategies),
             'current_epsilon': self.current_epsilon,
@@ -271,4 +354,48 @@ class AdaptiveEngagementRL:
             'total_usage': total_usage
         }
 
-    # Keep the rest of the methods (save_model, load_model, etc.) the same...
+    def save_model(self, filepath: str):
+        """Save the trained model"""
+        torch.save({
+            'model_state_dict': self.q_network.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'current_epsilon': self.current_epsilon,
+            'strategy_performance': self.strategy_performance,
+            'strategy_success_rate': self.strategy_success_rate,
+            'strategy_usage_count': self.strategy_usage_count,
+            'strategy_recent_performance': self.strategy_recent_performance,
+            'hot_strategies': list(self.hot_strategies),
+            'cold_strategies': list(self.cold_strategies),
+            'recent_rewards': list(self.recent_rewards),
+            'recent_engagements': list(self.recent_engagements)
+        }, filepath)
+
+    def load_model(self, filepath: str):
+        """Load a trained model"""
+        if os.path.exists(filepath):
+            checkpoint = torch.load(filepath, map_location=self.device)
+            self.q_network.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+            # Load adaptive parameters
+            self.current_epsilon = checkpoint.get('current_epsilon', 0.5)
+            self.strategy_performance = checkpoint.get('strategy_performance', {})
+            self.strategy_success_rate = checkpoint.get('strategy_success_rate', {})
+            self.strategy_usage_count = checkpoint.get('strategy_usage_count', {})
+            self.strategy_recent_performance = checkpoint.get('strategy_recent_performance', {})
+
+            # Load hot/cold strategies
+            self.hot_strategies = set(checkpoint.get('hot_strategies', []))
+            self.cold_strategies = set(checkpoint.get('cold_strategies', []))
+
+            # Load recent tracking
+            self.recent_rewards = deque(checkpoint.get('recent_rewards', []), maxlen=5)
+            self.recent_engagements = deque(checkpoint.get('recent_engagements', []), maxlen=5)
+
+            # Update external epsilon
+            self.epsilon = self.current_epsilon
+
+            stats = self.get_strategy_stats()
+            print(f"Model loaded - {stats['strategies_tried']}/{stats['total_strategies']} strategies tried")
+            print(f"🔥 Hot strategies: {len(self.hot_strategies)}, 🥶 Cold: {len(self.cold_strategies)}")
+            print(f"🔄 Current epsilon: {self.current_epsilon:.3f}")

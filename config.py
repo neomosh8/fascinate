@@ -1,6 +1,5 @@
 """Configuration and constants for the EEG Conversation RL system."""
 
-
 import os
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -11,13 +10,12 @@ load_dotenv()
 
 # API Keys (now loaded from .env file)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 # Model configurations
 WHISPER_MODEL = "gpt-4o-transcribe"
 GPT_MODEL = "gpt-4.1"
-ELEVENLABS_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # Default voice
-TTS_MODEL = "eleven_flash_v2_5"
+TTS_MODEL = "gpt-4o-mini-tts"  # Updated to use OpenAI TTS
+TTS_VOICE = "coral"  # Default OpenAI voice
 
 # EEG Configuration
 EEG_SAMPLE_RATE = 250  # Hz

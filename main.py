@@ -80,15 +80,15 @@ class ConversationalAI:
         if not await self.realtime_client.connect():
             raise Exception("Failed to connect to OpenAI")
 
-        # Initialize audio with event loop
+        # Initialize audio with event loop and callback
         print("Initializing audio system...")
         self.audio_handler.set_event_loop(asyncio.get_event_loop())
+        self.audio_handler.set_audio_send_callback(self._send_audio_to_openai)  # Add this
         self.audio_handler.start_recording()
         self.audio_handler.start_playback()
 
-        # Start audio processing and monitoring tasks
-        asyncio.create_task(self._process_audio_input())
-        asyncio.create_task(self._monitor_audio_status())
+        # Start monitoring task
+        asyncio.create_task(self._monitor_audio_debug())
 
         # Initialize EEG
         if not self.simulate_eeg:
@@ -118,19 +118,23 @@ class ConversationalAI:
             self.simulate_eeg = True
             asyncio.create_task(self._simulate_eeg_data())
 
-    async def _process_audio_input(self):
-        """Process microphone input (async task)"""
-        while True:
-            try:
-                audio_data = await self.audio_handler.get_audio_input()
+    async def _send_audio_to_openai(self, audio_data: bytes):
+        """Send audio data to OpenAI - only when appropriate"""
+        # Only send when not AI speaking and conversation is active
+        if self.conversation_active and not self.ai_speaking:
+            await self.realtime_client.send_audio_chunk(audio_data)
+            return True
+        return False
 
-                # Only send audio when user might be speaking
-                if self.conversation_active and not self.ai_speaking:
-                    await self.realtime_client.send_audio_chunk(audio_data)
+    async def _monitor_audio_debug(self):
+        """Monitor audio system for debugging"""
+        while self.conversation_active:
+            await asyncio.sleep(10)  # Every 10 seconds
 
-            except Exception as e:
-                print(f"Audio processing error: {e}")
-                await asyncio.sleep(0.1)
+            stats = self.audio_handler.get_debug_stats()
+            print(f"🎤 Audio Debug: captured={stats['chunks_captured']}, "
+                  f"sent={stats['chunks_sent']}, "
+                  f"last_audio={stats['last_audio_ago']:.1f}s ago" if stats['last_audio_ago'] else "never")
 
     async def _simulate_eeg_data(self):
         """Simulate EEG data for testing"""

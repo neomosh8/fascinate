@@ -28,7 +28,7 @@ class GPTConversation:
         messages.append({
             "role": "developer",
             "content": f"""You are a conversational assistant designed to keep users engaged.
-{strategy.to_prompt()}
+{strategy.to_prompt_with_memory()}
 
 Keep responses concise (under 180 tokens).
 put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""

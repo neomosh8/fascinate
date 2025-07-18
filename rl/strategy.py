@@ -2,18 +2,25 @@
 
 from dataclasses import dataclass
 from typing import List, Tuple
+import json
 import itertools
 from config import TONES, TOPICS, EMOTIONS, HOOKS
 
 
 @dataclass
 class Strategy:
-    """Represents a communication strategy."""
+    """Represents a communication strategy with memory of good/bad examples."""
     tone: str
     topic: str
     emotion: str
     hook: str
     index: int
+
+    def __post_init__(self):
+        # Memory of best/worst responses for this strategy
+        self.best_examples: List[Tuple[str, float]] = []
+        self.worst_examples: List[Tuple[str, float]] = []
+        self.max_examples: int = 5
 
     def to_prompt(self) -> str:
         """Convert strategy to simplified GPT system prompt."""
@@ -26,6 +33,45 @@ class Strategy:
             f"and conversational fillers like 'you know', 'well', 'actually', etc. "
             f"Keep responses under 180 tokens and end with something that invites further conversation."
         )
+
+    def add_example(self, response: str, engagement_delta: float):
+        """Add a response example with engagement result to memory."""
+        example = (response, engagement_delta)
+        if engagement_delta > 0.1:
+            self.best_examples.append(example)
+            self.best_examples.sort(key=lambda x: x[1], reverse=True)
+            self.best_examples = self.best_examples[: self.max_examples]
+        elif engagement_delta < -0.1:
+            self.worst_examples.append(example)
+            self.worst_examples.sort(key=lambda x: x[1])
+            self.worst_examples = self.worst_examples[: self.max_examples]
+
+    def to_prompt_with_memory(self) -> str:
+        """Generate system prompt including memory of past examples."""
+        base_prompt = self.to_prompt()
+        if not self.best_examples and not self.worst_examples:
+            return base_prompt
+
+        memory_prompt = "\n\nBased on past interactions:"
+
+        if self.best_examples:
+            memory_prompt += "\n\nExamples that worked VERY WELL (high engagement):"
+            for resp, delta in self.best_examples[:3]:
+                truncated = resp[:150] + "..." if len(resp) > 150 else resp
+                memory_prompt += f"\n- {truncated} (engagement +{delta:.2f})"
+
+        if self.worst_examples:
+            memory_prompt += "\n\nExamples that did NOT work (low engagement):"
+            for resp, delta in self.worst_examples[:3]:
+                truncated = resp[:150] + "..." if len(resp) > 150 else resp
+                memory_prompt += f"\n- {truncated} (engagement {delta:.2f})"
+
+        memory_prompt += (
+            "\n\nUse the successful examples as inspiration for style and content. "
+            "Avoid patterns from unsuccessful examples."
+        )
+
+        return base_prompt + memory_prompt
 
 
 class StrategySpace:
@@ -59,3 +105,34 @@ class StrategySpace:
         """Get a random strategy."""
         import random
         return random.choice(self.strategies)
+
+    def save_memory(self, filepath):
+        """Persist best and worst examples for all strategies."""
+        memory_data = {}
+        for strategy in self.strategies:
+            if strategy.best_examples or strategy.worst_examples:
+                memory_data[strategy.index] = {
+                    "best": strategy.best_examples,
+                    "worst": strategy.worst_examples,
+                }
+
+        with open(filepath, "w") as f:
+            json.dump(memory_data, f, indent=2)
+
+    def load_memory(self, filepath):
+        """Load best and worst examples from disk if available."""
+        from pathlib import Path
+
+        path = Path(filepath)
+        if not path.exists():
+            return
+
+        with open(path, "r") as f:
+            memory_data = json.load(f)
+
+        for idx_str, examples in memory_data.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(self.strategies):
+                self.strategies[idx].best_examples = examples.get("best", [])
+                self.strategies[idx].worst_examples = examples.get("worst", [])
+

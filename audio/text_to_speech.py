@@ -29,7 +29,7 @@ class TextToSpeech:
 
 
         if parts:
-            instruction = f"Speak {' and '.join(parts)}. "
+            instruction = f"Speak {' and '.join(parts)}. dont read word in bracket, but match your energy from those words and mimic them, in terms of level, pace, tonalite, personality etc"
         else:
             instruction = "Speak in a natural, conversational tone."
 

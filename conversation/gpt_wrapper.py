@@ -26,7 +26,7 @@ class GPTConversation:
 
         # Add strategy as system message
         messages.append({
-            "role": "developer",
+            "role": "system",
             "content": f"""You are a conversational assistant designed to keep users engaged.
 {strategy.to_prompt_with_memory()}
 

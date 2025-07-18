@@ -27,10 +27,9 @@ class Strategy:
         return (
             f"Adopt a {self.tone} tone when discussing {self.topic}. "
             f"Express {self.emotion} through your word choice and phrasing. "
-            f"Begin your response using the '{self.hook}' approach - "
             f"start with a {self.hook} and weave it naturally into your message. "
             f"Use natural speech patterns with appropriate pauses, emphasis through word choice, "
-            f"and conversational fillers like 'you know', 'well', 'actually', etc. "
+            f"and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
             f"Keep responses under 180 tokens and end with something that invites further conversation."
         )
 
@@ -56,18 +55,18 @@ class Strategy:
 
         if self.best_examples:
             memory_prompt += "\n\nExamples that worked VERY WELL (high engagement):"
-            for resp, delta in self.best_examples[:3]:
+            for resp, delta in self.best_examples[:5]:
                 truncated = resp[:150] + "..." if len(resp) > 150 else resp
-                memory_prompt += f"\n- {truncated} (engagement +{delta:.2f})"
+                memory_prompt += f"\n- {resp} (engagement +{delta:.2f})"
 
         if self.worst_examples:
             memory_prompt += "\n\nExamples that did NOT work (low engagement):"
             for resp, delta in self.worst_examples[:3]:
                 truncated = resp[:150] + "..." if len(resp) > 150 else resp
-                memory_prompt += f"\n- {truncated} (engagement {delta:.2f})"
+                memory_prompt += f"\n- {resp} (engagement {delta:.2f})"
 
         memory_prompt += (
-            "\n\nUse the successful examples as inspiration for style and content. "
+            "\n\nUse the successful examples as inspiration for style and content or even exploiting or going further and deepen it  "
             "Avoid patterns from unsuccessful examples."
         )
 

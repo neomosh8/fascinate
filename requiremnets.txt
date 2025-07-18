@@ -1,0 +1,10 @@
+openai
+elevenlabs
+pyaudio
+pygame
+numpy
+scipy
+matplotlib
+tkinter
+bleak
+stable-baselines3

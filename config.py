@@ -27,9 +27,9 @@ BETA_BAND = (13, 30)  # Hz for beta band (attention/engagement)
 class RLConfig:
     learning_rate: float = 0.1
     discount_factor: float = 0.6
-    epsilon_initial: float = 0.2
-    epsilon_decay: float = 0.99
-    epsilon_min: float = 0.05
+    epsilon_initial: float = 0.8
+    epsilon_decay: float = 0.995
+    epsilon_min: float = 0.1
 
 # Communication Strategy Components
 TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic"]

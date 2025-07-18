@@ -37,13 +37,16 @@ class QLearningAgent:
                 attention_bucket * 2 +
                 user_spoke_int)
 
+    # In agent.py, replace choose_action():
     def choose_action(self, state_idx: int) -> int:
-        """Epsilon-greedy action selection."""
+        """Epsilon-greedy action selection with random tie-breaking."""
         if np.random.random() < self.epsilon:
             return np.random.randint(0, self.num_actions)
         else:
-            return np.argmax(self.q_table[state_idx])
-
+            # Break ties randomly instead of always choosing first
+            max_q = np.max(self.q_table[state_idx])
+            max_actions = np.where(self.q_table[state_idx] == max_q)[0]
+            return np.random.choice(max_actions)
     def update(self, state_idx: int, action: int, reward: float, next_state_idx: int):
         """Update Q-value using Q-learning formula."""
         old_q = self.q_table[state_idx, action]

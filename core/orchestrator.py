@@ -5,6 +5,8 @@ import time
 from typing import Optional, Callable
 from dataclasses import dataclass
 
+import numpy as np
+
 from config import RLConfig
 from utils.logger import ConversationLogger
 from audio.speech_to_text import SpeechToText
@@ -130,8 +132,8 @@ class ConversationOrchestrator:
         )
 
         # 7. Calculate reward
-        reward = engagement_after - engagement_before
-        reward = max(-1.0, min(1.0, reward))  # Clip to [-1, 1]
+        reward = (engagement_after - engagement_before) * 100  # Scale up
+        reward = np.tanh(reward)  # Squash to [-1, 1] but preserve sign
 
         # 8. Update RL agent
         next_state_idx = self.rl_agent.state_to_index(

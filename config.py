@@ -27,9 +27,13 @@ BETA_BAND = (13, 30)  # Hz for beta band (attention/engagement)
 class RLConfig:
     learning_rate: float = 0.1
     discount_factor: float = 0.6
-    epsilon_initial: float = 0.8
-    epsilon_decay: float = 0.995
-    epsilon_min: float = 0.1
+    epsilon_initial: float = 0.9  # Start higher
+    epsilon_decay: float = 0.999  # Decay slower
+    epsilon_min: float = 0.15     # Explore longer
+
+    # UCB parameters
+    use_ucb: bool = True
+    ucb_confidence: float = 2.0
 
 # Communication Strategy Components
 TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic"]

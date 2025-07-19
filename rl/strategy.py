@@ -25,9 +25,9 @@ class Strategy:
     def to_prompt(self) -> str:
         """Convert strategy to simplified GPT system prompt."""
         return (
-            f"Adopt a {self.tone} tone when discussing {self.topic}. "
+            f"Adopt a {self.tone} tone and use the language, rhetoric, analogies and etc of  {self.topic} while having a conversation with user relevant to user's queries "
             f"Express {self.emotion} through your word choice and phrasing. "
-            f"start with a {self.hook} and weave it naturally into your message. "
+            f"start with a {self.hook} or use it and weave it naturally into your message. "
             f"Use natural speech patterns with appropriate pauses, emphasis through word choice, "
             f"and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
         )

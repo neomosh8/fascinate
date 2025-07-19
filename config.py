@@ -37,8 +37,8 @@ class RLConfig:
 
 # Communication Strategy Components
 TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic"]
-TOPICS = ["politics", "facts", "story", "controversial", "dad joke", "flirting"]
-EMOTIONS = ["happy", "sad", "serious", "scared", "whisper", "shout out", "laughter"]
+TOPICS = ["politics", "facts", "story", "controversial", "nerds", "gaming","gen z", "boomer","high iq", "low iq", "autistic"]
+EMOTIONS = ["happy", "sad", "serious", "scared", "whisper", "shouting", "laughter","flirting"]
 HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look"]
 
 

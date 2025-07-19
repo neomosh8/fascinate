@@ -18,6 +18,7 @@ from config import WINDOW_WIDTH, WINDOW_HEIGHT
 from core.orchestrator import ConversationOrchestrator
 from ui.bandit_visualizer import BanditVisualizationDashboard
 
+FONT_PATH = "DejaVuSans.ttf"      # relative path to the TTF you downloaded
 
 class EngagementWidget:
     """Apple Watch style ECG engagement display."""
@@ -132,7 +133,7 @@ class SphereVisualization:
 
         # Font setup
         self.font_size = 12
-        self.font = pygame.freetype.Font(None, self.font_size)
+        self.font = pygame.freetype.Font(FONT_PATH, self.font_size)
 
         # Get character dimensions
         char_surface, char_rect = self.font.render('@', (255, 255, 255))
@@ -153,7 +154,8 @@ class SphereVisualization:
         self.start_time = self.last_update
 
         # Shading characters
-        self.shades = ' .:-=+*#%@'
+        # self.shades = ' .:-=+*#%@'
+        self.shades = ' .○⊙⊗◍◉●'
 
         # Audio properties
         self.bass = 0.0
@@ -310,6 +312,8 @@ class PygameConversationUI:
         self.screen_width = 1200
         self.screen_height = 800
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        self._layout_buttons()
+
         pygame.display.set_caption('EEG-Driven Conversation with RL')
 
         # Colors
@@ -341,10 +345,6 @@ class PygameConversationUI:
         self.message_y = 450
         self.messages = deque(maxlen=5)
 
-        # Buttons
-        self.speak_button_rect = pygame.Rect(self.screen_width // 2 - 100, 500, 200, 60)
-        self.summary_button_rect = pygame.Rect(self.screen_width // 2 - 150, 600, 100, 30)
-        self.stop_button_rect = pygame.Rect(self.screen_width // 2 + 50, 600, 100, 30)
 
         # State
         self.is_recording = False
@@ -367,6 +367,28 @@ class PygameConversationUI:
         # Audio management
         self.current_audio_file = None
         self.audio_level = 0.0
+
+    def _layout_buttons(self):
+        # build the speak button
+        speak_w, speak_h = 200, 60
+        speak_x = self.screen_width // 2 - speak_w // 2
+        speak_y = 500
+        self.speak_button_rect = pygame.Rect(speak_x, speak_y, speak_w, speak_h)
+
+        # build summary and stop directly under it
+        total_w = int(speak_w * 1.05)
+        child_w = total_w // 2
+        child_h = 30
+        left = self.speak_button_rect.centerx - total_w // 2
+        child_y = self.speak_button_rect.bottom + 12
+
+        self.summary_button_rect = pygame.Rect(left, child_y, child_w, child_h)
+        self.stop_button_rect = pygame.Rect(left + child_w, child_y, child_w, child_h)
+
+        self.guide_pos = (
+            self.speak_button_rect.centerx,
+            self.stop_button_rect.bottom + 10
+        )
 
     def _queue_engagement_update(self, engagement: float):
         """Queue engagement update (thread-safe)."""
@@ -407,7 +429,7 @@ class PygameConversationUI:
             self.current_message.fade_out()
 
         # Create new message
-        color = (150, 200, 255) if is_user else (200, 255, 150)
+        color =(200, 255, 210) if is_user else (163, 255, 181)
         prefix = "You: " if is_user else "AI: "
         full_text = prefix + text
 
@@ -460,23 +482,33 @@ class PygameConversationUI:
         except Exception as e:
             print(f"Turn processing error: {e}")
 
-    def draw_button(self, rect: pygame.Rect, text: str, font: pygame.freetype.Font,
-                   active: bool = False, hover: bool = False):
-        """Draw a button with hover and active states."""
-        if active:
-            color = self.button_active_color
-        elif hover:
-            color = self.button_hover_color
-        else:
-            color = self.button_color
+    def draw_button(
+            self,
+            rect: pygame.Rect,
+            text: str,
+            font: pygame.freetype.Font,
+            *,
+            filled: bool = True,  # ← new
+            active: bool = False,
+            hover: bool = False,
+    ):
+        # draw the solid background only if asked to
+        if filled:
+            if active:
+                fill = self.button_active_color
+            elif hover:
+                fill = self.button_hover_color
+            else:
+                fill = self.button_color
+            pygame.draw.rect(self.screen, fill, rect, border_radius=8)
 
-        pygame.draw.rect(self.screen, color, rect, border_radius=8)
+        # always draw the 2-px outline
         pygame.draw.rect(self.screen, self.text_color, rect, 2, border_radius=8)
 
-        # Center text
-        text_surface, text_rect = font.render(text, self.text_color)
-        text_rect.center = rect.center
-        self.screen.blit(text_surface, text_rect)
+        # centre the label
+        txt_surf, txt_rect = font.render(text, self.text_color)
+        txt_rect.center = rect.center
+        self.screen.blit(txt_surf, txt_rect)
 
     def handle_events(self):
         """Handle pygame events."""
@@ -627,27 +659,31 @@ class PygameConversationUI:
             self.current_message.update()
             self.current_message.draw(self.screen)
 
-        # Draw buttons
+        # main “Hold to Speak” button keeps its fill
         self.draw_button(
             self.speak_button_rect,
             "Recording..." if self.is_recording else "Hold to Speak (Space)",
             self.font_medium,
             active=self.is_recording,
-            hover=self.button_hover == 'speak'
+            hover=self.button_hover == 'speak',
+            filled=True,  # default; could be omitted
         )
 
+        # child buttons: outline only
         self.draw_button(
             self.summary_button_rect,
             "Summary",
             self.font_small,
-            hover=self.button_hover == 'summary'
+            hover=self.button_hover == 'summary',
+            filled=False,
         )
 
         self.draw_button(
             self.stop_button_rect,
             "Stop",
             self.font_small,
-            hover=self.button_hover == 'stop'
+            hover=self.button_hover == 'stop',
+            filled=False,
         )
 
         # Draw engagement value at top
@@ -666,20 +702,10 @@ class PygameConversationUI:
                 (150, 150, 150),
             )
 
-        # Draw instructions
-        instructions = [
-            "Hold SPACE or click button to speak",
-            "Watch the sphere react to the conversation",
-            "Green plot shows real-time engagement"
-        ]
-
-        for i, instruction in enumerate(instructions):
-            self.font_small.render_to(
-                self.screen,
-                (20, self.screen_height - 80 + i * 20),
-                instruction,
-                (150, 150, 150)
-            )
+        guide_text = "Hold SPACE or click to speak"
+        text_surf, text_rect = self.font_small.render(guide_text, (150, 150, 150))
+        text_rect.center = self.guide_pos
+        self.screen.blit(text_surf, text_rect)
 
         pygame.display.flip()
 

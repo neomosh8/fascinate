@@ -292,43 +292,26 @@ class ConversationUI:
         text += f"Session Duration: {session_info['session_duration']:.1f} seconds\n"
         text += f"Final Engagement: {session_info['final_engagement']:.3f}\n\n"
 
-        # RL Performance
-        rl_perf = summary["rl_performance"]
-        if "error" not in rl_perf:
-            text += f"TOTAL REWARD: {rl_perf['total_reward']:.2f}\n"
-            text += f"AVERAGE REWARD: {rl_perf['average_reward']:.3f}\n\n"
+        # Bandit Performance
+        bandit_perf = summary["bandit_performance"]
+        text += f"AVERAGE RECENT REWARD: {bandit_perf['average_recent_reward']:.3f}\n\n"
 
-            # Best strategy - Fixed to use dot notation
-            best = rl_perf["best_strategy"]
-            text += "🏆 WINNING STRATEGY:\n"
-            text += f"   Tone: {best['strategy'].tone}\n"
-            text += f"   Topic: {best['strategy'].topic}\n"
-            text += f"   Emotion: {best['strategy'].emotion}\n"
-            text += f"   Hook: {best['strategy'].hook}\n"
-            text += f"   Average Reward: {best['average_reward']:.3f}\n"
-            text += f"   Used {best['usage_count']} times\n\n"
+        # Component analysis
+        text += "🎯 COMPONENT PERFORMANCE:\n"
+        for component, data in bandit_perf['components'].items():
+            text += f"\n📊 {component.upper()}:\n"
+            text += f"   Best Choice: {data['best_choice']} (score: {data['best_score']:.3f})\n"
+            usage_stats = data['usage_stats']
+            sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1]['average_reward'], reverse=True)
+            text += f"   Top Performers:\n"
+            for i, (arm, stats) in enumerate(sorted_arms[:3]):
+                text += f"     {i+1}. {arm}: {stats['average_reward']:.3f} avg "
+                text += f"({stats['usage_count']} uses, {stats['success_rate']:.1%} success)\n"
 
-            # Top strategies - Fixed to use dot notation
-            text += "🏅 TOP 5 STRATEGIES:\n"
-            for i, strategy_info in enumerate(rl_perf["top_strategies"][:5], 1):
-                s = strategy_info["strategy"]
-                text += f"   {i}. {s.tone}/{s.topic}/{s.emotion}/{s.hook}\n"
-                text += f"      Avg Reward: {strategy_info['average_reward']:.3f} "
-                text += f"(used {strategy_info['usage_count']} times)\n"
-
-            text += "\n"
-
-            # Learning progress
-            learning = rl_perf["learning_progress"]
-            text += "📈 LEARNING PROGRESS:\n"
-            text += f"   Early Average Reward: {learning['early_average_reward']:.3f}\n"
-            text += f"   Recent Average Reward: {learning['recent_average_reward']:.3f}\n"
-            text += f"   Improvement: {learning['improvement']:.3f}\n\n"
-
-            # Exploration stats
-            exploration = rl_perf["exploration_stats"]
-            text += "🔍 EXPLORATION:\n"
-            text += f"   Strategies Tried: {exploration['strategies_tried']}/{exploration['total_strategies']}\n"
-            text += f"   Final Epsilon: {exploration['final_epsilon']:.3f}\n"
+        # Restart information
+        restart_stats = bandit_perf['restart_stats']
+        text += f"\n🔄 ADAPTIVE RESTARTS:\n"
+        text += f"   Total Restarts: {restart_stats['total_restarts']}\n"
+        text += f"   Last Restart: Step {restart_stats['last_restart_step']}\n"
 
         return text

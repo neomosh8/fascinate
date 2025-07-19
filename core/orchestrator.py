@@ -7,15 +7,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from config import RLConfig, AUTO_ADVANCE_TIMEOUT_SEC
+from config import AUTO_ADVANCE_TIMEOUT_SEC
 from utils.logger import ConversationLogger
 from audio.speech_to_text import SpeechToText
 from audio.text_to_speech import TextToSpeech
 from conversation.gpt_wrapper import GPTConversation
 from eeg.device_manager import EEGDeviceManager
 from eeg.engagement_scorer import EngagementScorer
-from rl.agent import QLearningAgent
-from rl.strategy import StrategySpace
+from rl.hierarchical_bandit import HierarchicalBanditAgent
 
 
 @dataclass
@@ -44,17 +43,15 @@ class ConversationOrchestrator:
         self.engagement_scorer = EngagementScorer()
         self.event_loop = None
 
-        # Initialize RL components
-        self.strategy_space = StrategySpace(subset_size=100)
-        self.rl_agent = QLearningAgent(self.strategy_space)
+        # Initialize Hierarchical Bandit agent
+        self.bandit_agent = HierarchicalBanditAgent()
 
-        # Load any saved strategy memories
+        # Load saved bandit state
         from pathlib import Path
-        memory_file = Path("models") / "strategy_memory.json"
-        self.strategy_space.load_memory(memory_file)
+        bandit_file = Path("models") / "hierarchical_bandit.json"
+        self.bandit_agent.load(bandit_file)
 
         # State tracking
-        self.last_strategy_idx = 0
         self.last_engagement = 0.5
         self.turn_count = 0
         self.is_running = False
@@ -119,18 +116,12 @@ class ConversationOrchestrator:
         # 2. Get current engagement
         engagement_before = self.engagement_scorer.current_engagement
 
-        # 3. RL agent selects strategy
-        state_idx = self.rl_agent.state_to_index(
-            self.last_strategy_idx,
-            self.last_engagement,
-            user_spoke
-        )
-        strategy_idx = self.rl_agent.choose_action(
-            state_idx, use_ucb=self.rl_agent.config.use_ucb
-        )
-        strategy = self.strategy_space.get_strategy(strategy_idx)
+        # 3. Bandit agent selects strategy  
+        strategy = self.bandit_agent.select_strategy()
 
-        self.logger.info(f"Selected strategy: {strategy}")
+        self.logger.info(
+            f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
+        )
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
@@ -169,16 +160,14 @@ class ConversationOrchestrator:
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
 
-        # 8. Update RL agent
-        next_state_idx = self.rl_agent.state_to_index(
-            strategy_idx,
-            engagement_after,
-            user_spoke
-        )
-        self.rl_agent.update(state_idx, strategy_idx, reward, next_state_idx)
+        # 8. Update bandit agent
+        self.bandit_agent.update(strategy, reward)
+
+        # Send update to UI for visualization
+        if 'update_strategy' in self.ui_callbacks:
+            self.ui_callbacks['update_strategy']((strategy, reward))
 
         # Update state
-        self.last_strategy_idx = strategy_idx
         self.last_engagement = engagement_after
         self.turn_count += 1
 
@@ -223,7 +212,7 @@ class ConversationOrchestrator:
             self.is_running = True
 
             # Initial greeting
-            strategy = self.strategy_space.get_random_strategy()
+            strategy = self.bandit_agent.select_strategy()
             greeting = await self.gpt.generate_response("", strategy)
 
             if 'update_transcript' in self.ui_callbacks:
@@ -297,14 +286,12 @@ class ConversationOrchestrator:
         self.stt.cleanup()
         self.tts.cleanup()
 
-        # Save RL agent
+        # Save bandit agent
         from pathlib import Path
         save_path = Path("models")
         save_path.mkdir(exist_ok=True)
-        self.rl_agent.save(save_path / "q_table.pkl")
-
-        # Persist strategy examples
-        self.strategy_space.save_memory(save_path / "strategy_memory.json")
+        # Save bandit agent
+        self.bandit_agent.save(save_path / "hierarchical_bandit.json")
 
         # Save session summary to file
         summary = self.get_session_summary()
@@ -334,7 +321,7 @@ class ConversationOrchestrator:
 
     def get_session_summary(self) -> Dict:
         """Generate comprehensive session summary."""
-        performance_summary = self.rl_agent.get_performance_summary()
+        performance_summary = self.bandit_agent.get_performance_summary()
 
         return {
             "session_info": {
@@ -342,7 +329,7 @@ class ConversationOrchestrator:
                 "session_duration": time.time() - getattr(self, 'session_start_time', time.time()),
                 "final_engagement": self.last_engagement
             },
-            "rl_performance": performance_summary,
+            "bandit_performance": performance_summary,
             "engagement_stats": {
                 "current_engagement": self.engagement_scorer.current_engagement,
                 "baseline_collected": getattr(self.engagement_scorer, 'baseline_collected', False)
@@ -363,39 +350,24 @@ class ConversationOrchestrator:
         print(f"Session Duration: {session_info['session_duration']:.1f} seconds")
         print(f"Final Engagement: {session_info['final_engagement']:.3f}")
 
-        # RL Performance
-        rl_perf = summary["rl_performance"]
-        if "error" not in rl_perf:
-            print(f"\nTOTAL REWARD: {rl_perf['total_reward']:.2f}")
-            print(f"AVERAGE REWARD: {rl_perf['average_reward']:.3f}")
+        # Bandit Performance
+        rl_perf = summary["bandit_performance"]
+        print(f"\nAVERAGE RECENT REWARD: {rl_perf['average_recent_reward']:.3f}")
 
-            # Best strategy - Fixed to use dot notation
-            best = rl_perf["best_strategy"]
-            print(f"\n🏆 WINNING STRATEGY:")
-            print(f"   Strategy: {best['strategy'].tone} tone, {best['strategy'].topic} topic")
-            print(f"             {best['strategy'].emotion} emotion, {best['strategy'].hook} hook")
-            print(f"   Average Reward: {best['average_reward']:.3f}")
-            print(f"   Used {best['usage_count']} times")
+        # Component analysis
+        print("\n🎯 COMPONENT PERFORMANCE:")
+        for component, data in rl_perf['components'].items():
+            print(f"\n📊 {component.upper()}:")
+            print(f"   Best Choice: {data['best_choice']} (score: {data['best_score']:.3f})")
+            usage_stats = data['usage_stats']
+            sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1]['average_reward'], reverse=True)
+            print("   Top Performers:")
+            for i, (arm, stats) in enumerate(sorted_arms[:3]):
+                print(f"     {i+1}. {arm}: {stats['average_reward']:.3f} avg ({stats['usage_count']} uses, {stats['success_rate']:.1%} success)")
 
-            # Top strategies - Fixed to use dot notation
-            print(f"\n🏅 TOP 5 STRATEGIES:")
-            for i, strategy_info in enumerate(rl_perf["top_strategies"][:5], 1):
-                s = strategy_info["strategy"]
-                print(f"   {i}. {s.tone}/{s.topic}/{s.emotion}/{s.hook}")
-                print(f"      Avg Reward: {strategy_info['average_reward']:.3f} "
-                      f"(used {strategy_info['usage_count']} times)")
-
-            # Learning progress
-            learning = rl_perf["learning_progress"]
-            print(f"\n📈 LEARNING PROGRESS:")
-            print(f"   Early Average Reward: {learning['early_average_reward']:.3f}")
-            print(f"   Recent Average Reward: {learning['recent_average_reward']:.3f}")
-            print(f"   Improvement: {learning['improvement']:.3f}")
-
-            # Exploration stats
-            exploration = rl_perf["exploration_stats"]
-            print(f"\n🔍 EXPLORATION:")
-            print(f"   Strategies Tried: {exploration['strategies_tried']}/{exploration['total_strategies']}")
-            print(f"   Final Epsilon: {exploration['final_epsilon']:.3f}")
+        restart_stats = rl_perf['restart_stats']
+        print("\n🔄 ADAPTIVE RESTARTS:")
+        print(f"   Total Restarts: {restart_stats['total_restarts']}")
+        print(f"   Last Restart: Step {restart_stats['last_restart_step']}")
 
         print("=" * 60)

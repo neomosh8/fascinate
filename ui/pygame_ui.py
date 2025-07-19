@@ -323,6 +323,9 @@ class PygameConversationUI:
         self.button_hover_color = (50, 100, 60)
         self.button_active_color = (100, 50, 50)
 
+        self.border_color = (180, 255, 180)  # light-green outline
+        self.mic_icon = "🎤"  # U+1F3A4
+
         # Fonts
         self.font_large = pygame.freetype.Font(None, 24)
         self.font_medium = pygame.freetype.Font(None, 18)
@@ -370,7 +373,7 @@ class PygameConversationUI:
 
     def _layout_buttons(self):
         # build the speak button
-        speak_w, speak_h = 200, 60
+        speak_w, speak_h = 260, 70  # wider and taller (was 200 × 60)
         speak_x = self.screen_width // 2 - speak_w // 2
         speak_y = 500
         self.speak_button_rect = pygame.Rect(speak_x, speak_y, speak_w, speak_h)
@@ -488,11 +491,12 @@ class PygameConversationUI:
             text: str,
             font: pygame.freetype.Font,
             *,
-            filled: bool = True,  # ← new
+            icon: str | None = None,  # ← new
+            filled: bool = True,
             active: bool = False,
             hover: bool = False,
     ):
-        # draw the solid background only if asked to
+        # Optional solid background
         if filled:
             if active:
                 fill = self.button_active_color
@@ -502,13 +506,30 @@ class PygameConversationUI:
                 fill = self.button_color
             pygame.draw.rect(self.screen, fill, rect, border_radius=8)
 
-        # always draw the 2-px outline
-        pygame.draw.rect(self.screen, self.text_color, rect, 2, border_radius=8)
+        # Light-green outline
+        pygame.draw.rect(self.screen, self.border_color, rect, 2, border_radius=8)
 
-        # centre the label
-        txt_surf, txt_rect = font.render(text, self.text_color)
-        txt_rect.center = rect.center
-        self.screen.blit(txt_surf, txt_rect)
+        # ---------- render icon + label ----------
+        if icon:
+            icon_surf, icon_rect = font.render(icon, self.text_color)
+            label_surf, label_rect = font.render(text, self.text_color)
+
+            # spacing: 8-px gap after the icon
+            total_w = icon_rect.width + 8 + label_rect.width
+            start_x = rect.centerx - total_w // 2
+            centre_y = rect.centery
+
+            icon_rect.topleft = (start_x, centre_y - icon_rect.height // 2)
+            label_rect.topleft = (start_x + icon_rect.width + 8,
+                                  centre_y - label_rect.height // 2)
+
+            self.screen.blit(icon_surf, icon_rect)
+            self.screen.blit(label_surf, label_rect)
+        else:
+            # plain label
+            label_surf, label_rect = font.render(text, self.text_color)
+            label_rect.center = rect.center
+            self.screen.blit(label_surf, label_rect)
 
     def handle_events(self):
         """Handle pygame events."""
@@ -664,9 +685,10 @@ class PygameConversationUI:
             self.speak_button_rect,
             "Recording..." if self.is_recording else "Hold to Speak (Space)",
             self.font_medium,
+            icon=self.mic_icon,  # ← mic in front
             active=self.is_recording,
             hover=self.button_hover == 'speak',
-            filled=True,  # default; could be omitted
+            filled=True,
         )
 
         # child buttons: outline only

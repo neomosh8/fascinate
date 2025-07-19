@@ -1,35 +1,34 @@
-"""Text-to-speech using OpenAI API."""
+"""Enhanced text-to-speech with pygame audio integration."""
 
 import asyncio
 from typing import Optional, Tuple
 import io
 import pygame
 from openai import OpenAI
+import tempfile
+import os
 
 from config import OPENAI_API_KEY, TTS_VOICE
 from rl.strategy import Strategy
 
 
 class TextToSpeech:
-    """Handles text-to-speech conversion using OpenAI."""
+    """Handles text-to-speech conversion using OpenAI with pygame integration."""
 
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
         pygame.mixer.init()
         self.is_playing = False
+        self.current_audio_file = None
 
     def _strategy_to_instructions(self, strategy: Strategy) -> str:
         """Convert strategy to TTS instructions."""
-
-        # Build instruction
         parts = []
-
         parts.append(strategy.tone)
         parts.append(strategy.emotion)
 
-
         if parts:
-            instruction = f"Speak {' and '.join(parts)}. dont read word in bracket, but match your energy from those words and mimic them, in terms of level, pace, tonalite, personality etc"
+            instruction = f"Speak {' and '.join(parts)}. Don't read words in brackets, but match your energy from those words and mimic them, in terms of level, pace, tonality, personality etc"
         else:
             instruction = "Speak in a natural, conversational tone."
 
@@ -64,23 +63,36 @@ class TextToSpeech:
                     response_format="mp3"
                 )
                 return response.content
-            print("&&&&", instructions)
+
             audio_data = await loop.run_in_executor(None, _generate)
 
-            # Play audio
-            audio_stream = io.BytesIO(audio_data)
-            pygame.mixer.music.load(audio_stream)
+            # Save to temporary file for pygame
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+            temp_file.write(audio_data)
+            temp_file.close()
+
+            self.current_audio_file = temp_file.name
+
+            # Play audio with pygame
+            pygame.mixer.music.load(self.current_audio_file)
             pygame.mixer.music.play()
 
             self.is_playing = True
             tts_start = asyncio.get_event_loop().time()
 
-            # Wait for playback to complete
+            # Wait for playbook to complete
             while pygame.mixer.music.get_busy():
                 await asyncio.sleep(0.1)
 
             tts_end = asyncio.get_event_loop().time()
             self.is_playing = False
+
+            # Clean up temp file
+            try:
+                os.unlink(self.current_audio_file)
+            except:
+                pass
+            self.current_audio_file = None
 
             return tts_start, tts_end
 
@@ -94,6 +106,14 @@ class TextToSpeech:
             pygame.mixer.music.stop()
             self.is_playing = False
 
+        if self.current_audio_file and os.path.exists(self.current_audio_file):
+            try:
+                os.unlink(self.current_audio_file)
+            except:
+                pass
+            self.current_audio_file = None
+
     def cleanup(self):
         """Clean up audio resources."""
+        self.stop()
         pygame.mixer.quit()

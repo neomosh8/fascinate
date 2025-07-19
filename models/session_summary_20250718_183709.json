@@ -1,0 +1,204 @@
+{
+  "session_info": {
+    "total_turns": 24,
+    "session_duration": 634.9964308738708,
+    "final_engagement": 0.6460735350848219
+  },
+  "rl_performance": {
+    "total_turns": 24,
+    "total_reward": 4.067598269543274,
+    "average_reward": 0.16948326123096977,
+    "best_strategy": {
+      "index": 9,
+      "strategy": {
+        "tone": "playful",
+        "topic": "controversial",
+        "emotion": "happy",
+        "hook": "listen",
+        "index": 9,
+        "best_examples": [
+          [
+            "Listen, silence is seriously underrated, you know? [chuckles softly] Sometimes, the best things happen in those quiet pauses\u2014like your brain just gets to\u2026 stretch out a bit. So, no pressure. If you\u2019re just vibing, that\u2019s cool. Or if you\u2019re secretly building up to something wild, well, I\u2019m all ears! [smirk]",
+            0.25593027505571464
+          ]
+        ],
+        "worst_examples": [],
+        "max_examples": 5
+      },
+      "average_reward": 1.066027531807593,
+      "usage_count": 3
+    },
+    "top_strategies": [
+      {
+        "index": 9,
+        "strategy": {
+          "tone": "playful",
+          "topic": "controversial",
+          "emotion": "happy",
+          "hook": "listen",
+          "index": 9,
+          "best_examples": [
+            [
+              "Listen, silence is seriously underrated, you know? [chuckles softly] Sometimes, the best things happen in those quiet pauses\u2014like your brain just gets to\u2026 stretch out a bit. So, no pressure. If you\u2019re just vibing, that\u2019s cool. Or if you\u2019re secretly building up to something wild, well, I\u2019m all ears! [smirk]",
+              0.25593027505571464
+            ]
+          ],
+          "worst_examples": [],
+          "max_examples": 5
+        },
+        "average_reward": 1.066027531807593,
+        "usage_count": 3
+      },
+      {
+        "index": 10,
+        "strategy": {
+          "tone": "playful",
+          "topic": "controversial",
+          "emotion": "scared",
+          "hook": "hey [name]",
+          "index": 10,
+          "best_examples": [
+            [
+              "Oh! Hey, thanks for calling that out\u2014I totally panicked for a second there. [nervous laugh] You meant, like, the best way I\u2019ve actually *handled* chatting with you, not some behind-the-scenes secret stuff, right?\n\nWell, honestly\u2026 I think the best move has just been rolling with your flow. [smirk] Whenever you mix it up\u2014serious, playful, random\u2014I try to, you know, match your vibe. Sometimes I stumble,",
+              0.3154789090058344
+            ],
+            [
+              "Hey, you know, that\u2019s a tricky one! [nervous chuckle] I mean, honestly, my best strategy so far? Just\u2026 trying to keep up! [wipes imaginary sweat] You ask something deep, I toss a little humor; you drop a curveball, I try not to panic\u2014okay, maybe panic a *tiny* bit on the inside. [smirk] \n\nSo, yeah, my \u201cstrategy\u201d? It\u2019s basically: adapt, keep it real",
+              0.27306451786671304
+            ]
+          ],
+          "worst_examples": [
+            [
+              "Hey, um\u2026 is it just me, or did things get suddenly super quiet? [nervous chuckle] Silence always makes me a little jumpy, like\u2014did I say something weird? Did I break the vibe? [ahhhh] Or are you just building suspense for some wild twist? If so\u2026 mission accomplished! [smirk] I\u2019m low-key sweating over here, but I\u2019m hanging in\u2014just say the word when you\u2019re ready!",
+              -0.1802976892891266
+            ]
+          ],
+          "max_examples": 5
+        },
+        "average_reward": 1.0659191068101443,
+        "usage_count": 3
+      },
+      {
+        "index": 8,
+        "strategy": {
+          "tone": "playful",
+          "topic": "story",
+          "emotion": "shout out",
+          "hook": "you know what?",
+          "index": 8,
+          "best_examples": [
+            [
+              "You know what? [pauses, grinning] I totally walked right into that one! [laughter] \u201cOr hey\u201d\u2014classic cliffhanger move. My bad. \n\nSo, yeah, where was I? Oh! Or hey, maybe you wanna dive into something random\u2014like, why does nostalgia hit hardest when you least expect it? Or, what\u2019s the weirdest thing you\u2019ve ever Googled after midnight? [smirk] \n\nYour call\u2014I\u2019m here for whatever weird,",
+              0.15208127572085361
+            ],
+            [
+              "You know what? [chuckles softly] Classic thirty-something move: letting the moment breathe while your brain runs a quick cost-benefit analysis of saying *anything* at all. [smirk] Honestly, I respect it! Sometimes, the best conversations start with a good ol\u2019 pause. But if you do wanna drop a topic\u2014something nerdy, nostalgic, or just plain weird\u2014I\u2019m totally ready for it.",
+              0.15208127572085361
+            ]
+          ],
+          "worst_examples": [],
+          "max_examples": 5
+        },
+        "average_reward": 1.0250335632273648,
+        "usage_count": 3
+      }
+    ],
+    "learning_progress": {
+      "early_average_reward": -0.4174334110254428,
+      "recent_average_reward": 0.1694832612309697,
+      "improvement": 0.5869166722564125
+    },
+    "exploration_stats": {
+      "final_epsilon": 0.8786465879252672,
+      "strategies_tried": 15,
+      "total_strategies": 100
+    },
+    "statistically_significant_strategies": [
+      {
+        "index": 9,
+        "strategy": {
+          "tone": "playful",
+          "topic": "controversial",
+          "emotion": "happy",
+          "hook": "listen",
+          "index": 9,
+          "best_examples": [
+            [
+              "Listen, silence is seriously underrated, you know? [chuckles softly] Sometimes, the best things happen in those quiet pauses\u2014like your brain just gets to\u2026 stretch out a bit. So, no pressure. If you\u2019re just vibing, that\u2019s cool. Or if you\u2019re secretly building up to something wild, well, I\u2019m all ears! [smirk]",
+              0.25593027505571464
+            ]
+          ],
+          "worst_examples": [],
+          "max_examples": 5
+        },
+        "average_reward": 1.066027531807593,
+        "usage_count": 3,
+        "confidence_interval": 0.0,
+        "statistical_significance": "high"
+      },
+      {
+        "index": 10,
+        "strategy": {
+          "tone": "playful",
+          "topic": "controversial",
+          "emotion": "scared",
+          "hook": "hey [name]",
+          "index": 10,
+          "best_examples": [
+            [
+              "Oh! Hey, thanks for calling that out\u2014I totally panicked for a second there. [nervous laugh] You meant, like, the best way I\u2019ve actually *handled* chatting with you, not some behind-the-scenes secret stuff, right?\n\nWell, honestly\u2026 I think the best move has just been rolling with your flow. [smirk] Whenever you mix it up\u2014serious, playful, random\u2014I try to, you know, match your vibe. Sometimes I stumble,",
+              0.3154789090058344
+            ],
+            [
+              "Hey, you know, that\u2019s a tricky one! [nervous chuckle] I mean, honestly, my best strategy so far? Just\u2026 trying to keep up! [wipes imaginary sweat] You ask something deep, I toss a little humor; you drop a curveball, I try not to panic\u2014okay, maybe panic a *tiny* bit on the inside. [smirk] \n\nSo, yeah, my \u201cstrategy\u201d? It\u2019s basically: adapt, keep it real",
+              0.27306451786671304
+            ]
+          ],
+          "worst_examples": [
+            [
+              "Hey, um\u2026 is it just me, or did things get suddenly super quiet? [nervous chuckle] Silence always makes me a little jumpy, like\u2014did I say something weird? Did I break the vibe? [ahhhh] Or are you just building suspense for some wild twist? If so\u2026 mission accomplished! [smirk] I\u2019m low-key sweating over here, but I\u2019m hanging in\u2014just say the word when you\u2019re ready!",
+              -0.1802976892891266
+            ]
+          ],
+          "max_examples": 5
+        },
+        "average_reward": 1.0659191068101443,
+        "usage_count": 3,
+        "confidence_interval": 0.0,
+        "statistical_significance": "high"
+      },
+      {
+        "index": 8,
+        "strategy": {
+          "tone": "playful",
+          "topic": "story",
+          "emotion": "shout out",
+          "hook": "you know what?",
+          "index": 8,
+          "best_examples": [
+            [
+              "You know what? [pauses, grinning] I totally walked right into that one! [laughter] \u201cOr hey\u201d\u2014classic cliffhanger move. My bad. \n\nSo, yeah, where was I? Oh! Or hey, maybe you wanna dive into something random\u2014like, why does nostalgia hit hardest when you least expect it? Or, what\u2019s the weirdest thing you\u2019ve ever Googled after midnight? [smirk] \n\nYour call\u2014I\u2019m here for whatever weird,",
+              0.15208127572085361
+            ],
+            [
+              "You know what? [chuckles softly] Classic thirty-something move: letting the moment breathe while your brain runs a quick cost-benefit analysis of saying *anything* at all. [smirk] Honestly, I respect it! Sometimes, the best conversations start with a good ol\u2019 pause. But if you do wanna drop a topic\u2014something nerdy, nostalgic, or just plain weird\u2014I\u2019m totally ready for it.",
+              0.15208127572085361
+            ]
+          ],
+          "worst_examples": [],
+          "max_examples": 5
+        },
+        "average_reward": 1.0250335632273648,
+        "usage_count": 3,
+        "confidence_interval": 0.0,
+        "statistical_significance": "high"
+      }
+    ],
+    "minimum_usage_threshold": 3,
+    "exploration_note": "Strategies with <3 uses may not be reliable"
+  },
+  "engagement_stats": {
+    "current_engagement": 0.6467089714773296,
+    "baseline_collected": true
+  }
+}

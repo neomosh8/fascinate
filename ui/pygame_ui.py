@@ -150,6 +150,7 @@ class SphereVisualization:
         self.directions = [(0,1), (1,0), (0,-1), (-1,0), (1,1), (1,-1), (-1,1), (-1,-1)]
         self.letter_map = {}
         self.last_update = time.time()
+        self.start_time = self.last_update
 
         # Shading characters
         self.shades = ' .:-=+*#%@'
@@ -201,7 +202,7 @@ class SphereVisualization:
     def draw(self, screen: pygame.Surface):
         """Draw the 3D sphere."""
         current_time = time.time()
-        t = current_time - self.last_update
+        t = current_time - self.start_time
 
         # Update letter map periodically
         if current_time - self.last_update > 5.0:

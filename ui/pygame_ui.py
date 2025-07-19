@@ -131,7 +131,7 @@ class SphereVisualization:
         self.grid_rows = grid_rows
 
         # Font setup
-        self.font_size = 8
+        self.font_size = 12
         self.font = pygame.freetype.Font(None, self.font_size)
 
         # Get character dimensions
@@ -141,8 +141,8 @@ class SphereVisualization:
 
         # Sphere parameters
         self.r_base = min(grid_cols, grid_rows) / 3.5
-        self.amp = 0.3
-        self.freq = 0.5
+        self.amp = 0.8
+        self.freq = 0.05
         self.correction = self.char_height / self.char_width
 
         # Trending words

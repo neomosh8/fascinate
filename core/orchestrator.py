@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from config import RLConfig
+from config import RLConfig, AUTO_ADVANCE_TIMEOUT_SEC
 from utils.logger import ConversationLogger
 from audio.speech_to_text import SpeechToText
 from audio.text_to_speech import TextToSpeech
@@ -59,6 +59,10 @@ class ConversationOrchestrator:
         self.turn_count = 0
         self.is_running = False
 
+        # Auto-advance timer
+        self.auto_advance_task: Optional[asyncio.Task] = None
+        self.auto_advance_timeout = AUTO_ADVANCE_TIMEOUT_SEC
+
         # UI callbacks
         self.ui_callbacks = ui_callbacks or {}
 
@@ -96,6 +100,9 @@ class ConversationOrchestrator:
 
     async def process_turn(self, audio_data: bytes) -> TurnData:
         """Process a single conversation turn."""
+        # Cancel any auto-advance timer
+        self.cancel_auto_advance_timer()
+
         turn_start = time.time()
 
         # 1. Transcribe user speech
@@ -156,6 +163,9 @@ class ConversationOrchestrator:
         self.last_engagement = engagement_after
         self.turn_count += 1
 
+        # Start auto-advance timer now that TTS finished
+        self.start_auto_advance_timer()
+
         # Create turn data
         turn_data = TurnData(
             user_text=user_text,
@@ -202,6 +212,9 @@ class ConversationOrchestrator:
 
             await self.tts.speak(greeting, strategy)  # Pass strategy to TTS
 
+            # Start auto-advance timer after greeting
+            self.start_auto_advance_timer()
+
             # Main conversation loop
             while self.is_running:
                 await asyncio.sleep(0.1)
@@ -211,14 +224,49 @@ class ConversationOrchestrator:
         finally:
             await self.eeg_manager.stop_streaming()
 
+    def start_auto_advance_timer(self):
+        """Start a timer to auto-advance the conversation."""
+        if self.auto_advance_task and not self.auto_advance_task.done():
+            self.auto_advance_task.cancel()
+
+        if self.is_running:
+            self.auto_advance_task = asyncio.create_task(self._auto_advance_timer())
+
+    def cancel_auto_advance_timer(self):
+        """Cancel any running auto-advance timer."""
+        if self.auto_advance_task and not self.auto_advance_task.done():
+            self.auto_advance_task.cancel()
+            self.auto_advance_task = None
+
+    async def _auto_advance_timer(self):
+        """Wait for the timeout and process an empty turn."""
+        try:
+            for seconds_left in range(self.auto_advance_timeout, 0, -1):
+                if 'update_countdown' in self.ui_callbacks:
+                    self.ui_callbacks['update_countdown'](seconds_left)
+                await asyncio.sleep(1)
+
+            if 'update_countdown' in self.ui_callbacks:
+                self.ui_callbacks['update_countdown'](0)
+
+            self.logger.info("Auto-advancing conversation (user silent)")
+            empty_audio = b""
+            await self.process_turn(empty_audio)
+        except asyncio.CancelledError:
+            if 'update_countdown' in self.ui_callbacks:
+                self.ui_callbacks['update_countdown'](0)
+            pass
+
     def stop(self):
         """Stop the conversation session."""
         self.is_running = False
+        self.cancel_auto_advance_timer()
         self.tts.stop()
 
     # Update the cleanup method
     def cleanup(self):
         """Clean up resources."""
+        self.cancel_auto_advance_timer()
         # Print session summary before cleanup
         if self.turn_count > 0:
             self.print_session_summary()

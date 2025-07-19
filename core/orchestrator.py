@@ -105,9 +105,12 @@ class ConversationOrchestrator:
 
         turn_start = time.time()
 
-        # 1. Transcribe user speech
-        self.logger.info("Transcribing user speech...")
-        user_text = await self.stt.transcribe(audio_data)
+        # 1. Transcribe user speech (skip API call for silence)
+        if audio_data:
+            self.logger.info("Transcribing user speech...")
+            user_text = await self.stt.transcribe(audio_data)
+        else:
+            user_text = ""
         user_spoke = len(user_text.strip()) > 0
 
         if 'update_transcript' in self.ui_callbacks:
@@ -239,7 +242,7 @@ class ConversationOrchestrator:
             self.auto_advance_task = None
 
     async def _auto_advance_timer(self):
-        """Wait for the timeout and process an empty turn."""
+        """Wait for the timeout and queue a silent turn."""
         try:
             for seconds_left in range(self.auto_advance_timeout, 0, -1):
                 if 'update_countdown' in self.ui_callbacks:
@@ -251,11 +254,15 @@ class ConversationOrchestrator:
 
             self.logger.info("Auto-advancing conversation (user silent)")
             empty_audio = b""
-            await self.process_turn(empty_audio)
+            # Schedule processing as a new task so cancellation doesn't
+            # interrupt this timer
+            asyncio.create_task(self.process_turn(empty_audio))
         except asyncio.CancelledError:
             if 'update_countdown' in self.ui_callbacks:
                 self.ui_callbacks['update_countdown'](0)
-            pass
+        finally:
+            # Clear reference so new timers can start cleanly
+            self.auto_advance_task = None
 
     def stop(self):
         """Stop the conversation session."""

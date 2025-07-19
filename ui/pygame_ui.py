@@ -338,7 +338,7 @@ class PygameConversationUI:
 
         # Message display
         self.current_message = None
-        self.message_y = 400
+        self.message_y = 450
         self.messages = deque(maxlen=5)
 
         # Buttons

@@ -36,7 +36,7 @@ class RLConfig:
     ucb_confidence: float = 2.0
 
 # Communication Strategy Components
-TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic"]
+TONES = ["playful", "naughty", "informational", "bossy", "aggressive", "sarcastic", 'calm','kind']
 TOPICS = ["politics", "facts", "story", "controversial", "nerds", "gaming","gen z", "boomer","high iq", "low iq", "autistic"]
 EMOTIONS = ["happy", "sad", "serious", "scared", "whisper", "shouting", "laughter","flirting"]
 HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look"]

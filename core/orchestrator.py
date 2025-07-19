@@ -48,13 +48,24 @@ class ConversationOrchestrator:
 
         # Load saved bandit state
         from pathlib import Path
-        bandit_file = Path("models") / "hierarchical_bandit.json"
-        self.bandit_agent.load(bandit_file)
+        models_path = Path("models")
+        models_path.mkdir(exist_ok=True)  # Ensure directory exists
+        bandit_file = models_path / "hierarchical_bandit.json"
+        try:
+            self.bandit_agent.load(bandit_file)
+            print(f"Loaded bandit state from {bandit_file}")
+        except Exception as e:
+            print(f"Could not load bandit state: {e}")
 
         # State tracking
         self.last_engagement = 0.5
         self.turn_count = 0
         self.is_running = False
+
+        # Enhanced reward calculation for adaptive engagement
+        self.engagement_history = []
+        self.reward_baseline = 0.0
+        self.reward_std = 1.0
 
         # Auto-advance timer
         self.auto_advance_task: Optional[asyncio.Task] = None
@@ -95,6 +106,60 @@ class ConversationOrchestrator:
             self.logger.error(f"Initialization failed: {e}")
             return False
 
+    def _calculate_adaptive_reward(self, engagement_before: float, engagement_after: float,
+                                 user_spoke: bool, session_duration: float) -> float:
+        """Calculate reward adapted for the new engagement scorer."""
+
+        # Basic engagement change
+        engagement_delta = engagement_after - engagement_before
+
+        # Store engagement history for adaptive normalization
+        self.engagement_history.append(engagement_delta)
+        if len(self.engagement_history) > 50:  # Keep last 50 deltas
+            self.engagement_history.pop(0)
+
+        # Adaptive reward baseline and scaling
+        if len(self.engagement_history) > 10:
+            self.reward_baseline = np.mean(self.engagement_history)
+            self.reward_std = max(np.std(self.engagement_history), 0.01)
+
+        # Normalized engagement change (z-score)
+        normalized_delta = (engagement_delta - self.reward_baseline) / self.reward_std
+
+        # Base reward from normalized engagement change
+        reward = normalized_delta
+
+        # Bonuses and penalties
+
+        # 1. Absolute engagement level bonus (higher engagement = better)
+        if engagement_after > 0.6:
+            reward += 0.3 * (engagement_after - 0.6)
+        elif engagement_after < 0.4:
+            reward -= 0.2 * (0.4 - engagement_after)
+
+        # 2. User interaction bonus
+        if user_spoke:
+            reward += 0.2
+
+        # 3. Session progression bonus (later improvements matter more)
+        progression_multiplier = min(1.0 + session_duration / 300, 1.5)  # Up to 1.5x after 5 minutes
+        reward *= progression_multiplier
+
+        # 4. Consistency bonus (reward stable high engagement)
+        if len(self.engagement_history) > 5:
+            recent_engagement = [self.last_engagement, engagement_after]
+            if all(e > 0.6 for e in recent_engagement[-3:]):
+                reward += 0.1  # Bonus for sustained high engagement
+
+        # 5. Large drops penalty
+        if engagement_delta < -0.1:
+            reward -= 0.3
+
+        # Clip final reward
+        reward = np.clip(reward, -2.0, 2.0)
+
+        return reward
+
     async def process_turn(self, audio_data: bytes) -> TurnData:
         """Process a single conversation turn."""
         # Cancel any auto-advance timer
@@ -116,7 +181,7 @@ class ConversationOrchestrator:
         # 2. Get current engagement
         engagement_before = self.engagement_scorer.current_engagement
 
-        # 3. Bandit agent selects strategy  
+        # 3. Bandit agent selects strategy
         strategy = self.bandit_agent.select_strategy()
 
         self.logger.info(
@@ -132,30 +197,18 @@ class ConversationOrchestrator:
 
         # 5. Speak response with strategy and track engagement
         self.logger.info("Speaking response...")
-        tts_start, tts_end = await self.tts.speak(assistant_text, strategy)  # Pass strategy to TTS
+        tts_start, tts_end = await self.tts.speak(assistant_text, strategy)
 
         # 6. Get engagement during TTS
         engagement_after = self.engagement_scorer.get_segment_engagement(
             tts_start, tts_end, self.eeg_manager
         )
 
-        # 7. Calculate reward with smoothing
-        engagement_delta = engagement_after - engagement_before
-
-        if not hasattr(self, 'engagement_deltas'):
-            self.engagement_deltas = []
-
-        self.engagement_deltas.append(engagement_delta)
-        if len(self.engagement_deltas) > 5:
-            self.engagement_deltas.pop(0)
-
-        smoothed_delta = np.mean(self.engagement_deltas)
-
-        reward = smoothed_delta * 50  # Reduced scaling
-        reward = np.tanh(reward)
-
-        if user_spoke:
-            reward += 0.1
+        # 7. Calculate adaptive reward
+        session_duration = time.time() - getattr(self, 'session_start_time', time.time())
+        reward = self._calculate_adaptive_reward(
+            engagement_before, engagement_after, user_spoke, session_duration
+        )
 
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
@@ -204,7 +257,7 @@ class ConversationOrchestrator:
     async def run_session(self, client):
         """Run the main conversation session."""
         try:
-            self.session_start_time = time.time()  # Add this line
+            self.session_start_time = time.time()
             self.event_loop = asyncio.get_event_loop()
 
             # Start EEG streaming
@@ -218,7 +271,7 @@ class ConversationOrchestrator:
             if 'update_transcript' in self.ui_callbacks:
                 self.ui_callbacks['update_transcript'](f"Assistant: {greeting}")
 
-            await self.tts.speak(greeting, strategy)  # Pass strategy to TTS
+            await self.tts.speak(greeting, strategy)
 
             # Start auto-advance timer after greeting
             self.start_auto_advance_timer()
@@ -259,14 +312,11 @@ class ConversationOrchestrator:
 
             self.logger.info("Auto-advancing conversation (user silent)")
             empty_audio = b""
-            # Schedule processing as a new task so cancellation doesn't
-            # interrupt this timer
             asyncio.create_task(self.process_turn(empty_audio))
         except asyncio.CancelledError:
             if 'update_countdown' in self.ui_callbacks:
                 self.ui_callbacks['update_countdown'](0)
         finally:
-            # Clear reference so new timers can start cleanly
             self.auto_advance_task = None
 
     def stop(self):
@@ -275,11 +325,9 @@ class ConversationOrchestrator:
         self.cancel_auto_advance_timer()
         self.tts.stop()
 
-    # Update the cleanup method
     def cleanup(self):
         """Clean up resources."""
         self.cancel_auto_advance_timer()
-        # Print session summary before cleanup
         if self.turn_count > 0:
             self.print_session_summary()
 
@@ -290,8 +338,12 @@ class ConversationOrchestrator:
         from pathlib import Path
         save_path = Path("models")
         save_path.mkdir(exist_ok=True)
-        # Save bandit agent
-        self.bandit_agent.save(save_path / "hierarchical_bandit.json")
+
+        try:
+            self.bandit_agent.save(save_path / "hierarchical_bandit.json")
+            print("Bandit state saved successfully")
+        except Exception as e:
+            print(f"Failed to save bandit state: {e}")
 
         # Save session summary to file
         summary = self.get_session_summary()
@@ -300,11 +352,10 @@ class ConversationOrchestrator:
 
         import json
 
-        # Custom serializer for Strategy objects
         def serialize_object(obj):
             if hasattr(obj, '__dict__'):
                 return obj.__dict__
-            elif hasattr(obj, 'tone'):  # Strategy object
+            elif hasattr(obj, 'tone'):
                 return {
                     'tone': obj.tone,
                     'topic': obj.topic,
@@ -314,14 +365,20 @@ class ConversationOrchestrator:
                 }
             return str(obj)
 
-        with open(summary_path, 'w') as f:
-            json.dump(summary, f, indent=2, default=serialize_object)
-
-        print(f"\nSession summary saved to: {summary_path}")
+        try:
+            with open(summary_path, 'w') as f:
+                json.dump(summary, f, indent=2, default=serialize_object)
+            print(f"Session summary saved to: {summary_path}")
+        except Exception as e:
+            print(f"Failed to save session summary: {e}")
 
     def get_session_summary(self) -> Dict:
         """Generate comprehensive session summary."""
-        performance_summary = self.bandit_agent.get_performance_summary()
+        try:
+            performance_summary = self.bandit_agent.get_performance_summary()
+        except Exception as e:
+            print(f"Error getting performance summary: {e}")
+            performance_summary = {"error": str(e)}
 
         return {
             "session_info": {
@@ -332,7 +389,8 @@ class ConversationOrchestrator:
             "bandit_performance": performance_summary,
             "engagement_stats": {
                 "current_engagement": self.engagement_scorer.current_engagement,
-                "baseline_collected": getattr(self.engagement_scorer, 'baseline_collected', False)
+                "baseline_collected": getattr(self.engagement_scorer, 'baseline_collected', False),
+                "adaptive_baseline_initialized": getattr(self.engagement_scorer, 'baseline_initialized', False)
             }
         }
 
@@ -352,22 +410,25 @@ class ConversationOrchestrator:
 
         # Bandit Performance
         rl_perf = summary["bandit_performance"]
-        print(f"\nAVERAGE RECENT REWARD: {rl_perf['average_recent_reward']:.3f}")
+        if "error" not in rl_perf:
+            print(f"\nAVERAGE RECENT REWARD: {rl_perf.get('average_recent_reward', 'N/A')}")
 
-        # Component analysis
-        print("\n🎯 COMPONENT PERFORMANCE:")
-        for component, data in rl_perf['components'].items():
-            print(f"\n📊 {component.upper()}:")
-            print(f"   Best Choice: {data['best_choice']} (score: {data['best_score']:.3f})")
-            usage_stats = data['usage_stats']
-            sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1]['average_reward'], reverse=True)
-            print("   Top Performers:")
-            for i, (arm, stats) in enumerate(sorted_arms[:3]):
-                print(f"     {i+1}. {arm}: {stats['average_reward']:.3f} avg ({stats['usage_count']} uses, {stats['success_rate']:.1%} success)")
+            # Component analysis
+            print("\n🎯 COMPONENT PERFORMANCE:")
+            for component, data in rl_perf.get('components', {}).items():
+                print(f"\n📊 {component.upper()}:")
+                print(f"   Best Choice: {data.get('best_choice', 'N/A')} (score: {data.get('best_score', 0):.3f})")
+                usage_stats = data.get('usage_stats', {})
+                sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1].get('average_reward', 0), reverse=True)
+                print("   Top Performers:")
+                for i, (arm, stats) in enumerate(sorted_arms[:3]):
+                    print(f"     {i+1}. {arm}: {stats.get('average_reward', 0):.3f} avg ({stats.get('usage_count', 0)} uses, {stats.get('success_rate', 0):.1%} success)")
 
-        restart_stats = rl_perf['restart_stats']
-        print("\n🔄 ADAPTIVE RESTARTS:")
-        print(f"   Total Restarts: {restart_stats['total_restarts']}")
-        print(f"   Last Restart: Step {restart_stats['last_restart_step']}")
+            restart_stats = rl_perf.get('restart_stats', {})
+            print("\n🔄 ADAPTIVE RESTARTS:")
+            print(f"   Total Restarts: {restart_stats.get('total_restarts', 0)}")
+            print(f"   Last Restart: Step {restart_stats.get('last_restart_step', 0)}")
+        else:
+            print(f"\nRL Performance Error: {rl_perf['error']}")
 
         print("=" * 60)

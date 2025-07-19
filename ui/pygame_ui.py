@@ -533,19 +533,42 @@ class PygameConversationUI:
     def show_session_summary(self):
         """Show session summary in console (could be enhanced)."""
         summary = self.orchestrator.get_session_summary()
-        print("\n" + "="*50)
-        print("SESSION SUMMARY")
-        print("="*50)
+        text = self._format_summary_text(summary)
+        print(text)
 
+    def _format_summary_text(self, summary: dict) -> str:
+        """Format summary dictionary as readable text."""
+        text = "SESSION SUMMARY\n" + "=" * 50 + "\n\n"
+
+        # Session info (keep existing)
         session_info = summary["session_info"]
-        print(f"Total Turns: {session_info['total_turns']}")
-        print(f"Final Engagement: {session_info['final_engagement']:.3f}")
+        text += f"Total Turns: {session_info['total_turns']}\n"
+        text += f"Session Duration: {session_info['session_duration']:.1f} seconds\n"
+        text += f"Final Engagement: {session_info['final_engagement']:.3f}\n\n"
 
-        rl_perf = summary["rl_performance"]
-        if "error" not in rl_perf:
-            print(f"Total Reward: {rl_perf['total_reward']:.2f}")
-            print(f"Average Reward: {rl_perf['average_reward']:.3f}")
-        print("="*50)
+        # Bandit Performance
+        bandit_perf = summary["bandit_performance"]
+        text += f"AVERAGE RECENT REWARD: {bandit_perf['average_recent_reward']:.3f}\n\n"
+
+        # Component analysis
+        text += "🎯 COMPONENT PERFORMANCE:\n"
+        for component, data in bandit_perf['components'].items():
+            text += f"\n📊 {component.upper()}:\n"
+            text += f"   Best Choice: {data['best_choice']} (score: {data['best_score']:.3f})\n"
+            usage_stats = data['usage_stats']
+            sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1]['average_reward'], reverse=True)
+            text += f"   Top Performers:\n"
+            for i, (arm, stats) in enumerate(sorted_arms[:3]):
+                text += f"     {i+1}. {arm}: {stats['average_reward']:.3f} avg "
+                text += f"({stats['usage_count']} uses, {stats['success_rate']:.1%} success)\n"
+
+        # Restart information
+        restart_stats = bandit_perf['restart_stats']
+        text += f"\n🔄 ADAPTIVE RESTARTS:\n"
+        text += f"   Total Restarts: {restart_stats['total_restarts']}\n"
+        text += f"   Last Restart: Step {restart_stats['last_restart_step']}\n"
+
+        return text
 
     def update_audio_level(self):
         """Update audio level for sphere visualization."""

@@ -163,6 +163,10 @@ class ConversationOrchestrator:
         # 8. Update bandit agent
         self.bandit_agent.update(strategy, reward)
 
+        # Send update to UI for visualization
+        if 'update_strategy' in self.ui_callbacks:
+            self.ui_callbacks['update_strategy']((strategy, reward))
+
         # Update state
         self.last_engagement = engagement_after
         self.turn_count += 1

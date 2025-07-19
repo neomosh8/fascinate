@@ -16,6 +16,7 @@ import queue
 
 from config import WINDOW_WIDTH, WINDOW_HEIGHT
 from core.orchestrator import ConversationOrchestrator
+from ui.bandit_visualizer import BanditVisualizationDashboard
 
 
 class EngagementWidget:
@@ -326,6 +327,14 @@ class PygameConversationUI:
         self.sphere = SphereVisualization(self.screen_width // 2, 250)
         self.engagement_widget = EngagementWidget(self.screen_width - 220, 20, 200, 120)
 
+        # Bandit visualization dashboard
+        self.bandit_dashboard = BanditVisualizationDashboard(self.screen_width, self.screen_height)
+        self.show_dashboard = True
+
+        # Track latest strategy performance
+        self.latest_strategy = None
+        self.latest_reward = None
+
         # Message display
         self.current_message = None
         self.message_y = 400
@@ -350,7 +359,8 @@ class PygameConversationUI:
         self.orchestrator.ui_callbacks = {
             'update_engagement': self._queue_engagement_update,
             'update_transcript': self._queue_transcript_update,
-            'update_countdown': self._queue_countdown_update
+            'update_countdown': self._queue_countdown_update,
+            'update_strategy': self._queue_strategy_update,
         }
 
         # Audio management
@@ -368,6 +378,10 @@ class PygameConversationUI:
     def _queue_countdown_update(self, seconds_left: int):
         """Queue countdown update (thread-safe)."""
         self.update_queue.put(('countdown', seconds_left))
+
+    def _queue_strategy_update(self, data):
+        """Queue strategy update for visualization."""
+        self.update_queue.put(('strategy_update', data))
 
     def extract_words_from_text(self, text: str) -> List[str]:
         """Extract interesting words from AI response."""
@@ -475,6 +489,8 @@ class PygameConversationUI:
                     if not self.space_pressed:
                         self.space_pressed = True
                         self.handle_speak_button_press()
+                elif event.key == pygame.K_TAB:
+                    self.show_dashboard = not self.show_dashboard
 
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_SPACE:
@@ -526,6 +542,15 @@ class PygameConversationUI:
 
                 elif update_type == 'countdown':
                     pass  # Could add countdown display
+
+                elif update_type == 'strategy_update':
+                    self.latest_strategy, self.latest_reward = data
+                    if self.show_dashboard:
+                        self.bandit_dashboard.update(
+                            self.orchestrator.bandit_agent,
+                            self.latest_strategy,
+                            self.latest_reward,
+                        )
 
         except queue.Empty:
             pass
@@ -628,6 +653,17 @@ class PygameConversationUI:
         if hasattr(self.orchestrator.engagement_scorer, 'current_engagement'):
             engagement_text = f"Engagement: {self.orchestrator.engagement_scorer.current_engagement:.3f}"
             self.font_small.render_to(self.screen, (20, 20), engagement_text, self.text_color)
+
+        # Draw bandit dashboard if enabled
+        if self.show_dashboard:
+            self.bandit_dashboard.draw(self.screen, self.orchestrator.bandit_agent)
+            hint_text = "Press TAB to toggle dashboard"
+            self.font_small.render_to(
+                self.screen,
+                (self.screen_width - 200, self.screen_height - 20),
+                hint_text,
+                (150, 150, 150),
+            )
 
         # Draw instructions
         instructions = [

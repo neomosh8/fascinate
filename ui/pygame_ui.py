@@ -363,7 +363,7 @@ class PygameConversationUI:
 
         # Message display
         self.current_message = None
-        self.message_y = 450
+        self.message_y = 540
         self.messages = deque(maxlen=5)
 
 

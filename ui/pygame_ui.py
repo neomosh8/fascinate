@@ -173,7 +173,7 @@ class SphereVisualization:
         selected_words = random.sample(self.trending_words, min(3, len(self.trending_words)))
 
         for word in selected_words:
-            for _ in range(2):  # 2 placements per word
+            for _ in range(6):  # 2 placements per word
                 attempts = 0
                 while attempts < 50:
                     i_start = random.randint(0, self.grid_rows - 1)
@@ -210,7 +210,7 @@ class SphereVisualization:
             self.last_update = current_time
 
         # Calculate sphere radius with animation
-        r = self.r_base * (1 + self.amp * math.sin(2 * math.pi * self.freq * t))
+        r = self.r_base * (1 + self.amp * ((math.sin(2 * math.pi * self.freq * t) + 1) / 2))
 
         # Create grids
         grid = [[' ' for _ in range(self.grid_cols)] for _ in range(self.grid_rows)]

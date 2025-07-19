@@ -115,7 +115,9 @@ class ConversationOrchestrator:
             self.last_engagement,
             user_spoke
         )
-        strategy_idx = self.rl_agent.choose_action(state_idx)
+        strategy_idx = self.rl_agent.choose_action(
+            state_idx, use_ucb=self.rl_agent.config.use_ucb
+        )
         strategy = self.strategy_space.get_strategy(strategy_idx)
 
         self.logger.info(f"Selected strategy: {strategy}")
@@ -136,9 +138,23 @@ class ConversationOrchestrator:
             tts_start, tts_end, self.eeg_manager
         )
 
-        # 7. Calculate reward
-        reward = (engagement_after - engagement_before) * 100  # Scale up
-        reward = np.tanh(reward)  # Squash to [-1, 1] but preserve sign
+        # 7. Calculate reward with smoothing
+        engagement_delta = engagement_after - engagement_before
+
+        if not hasattr(self, 'engagement_deltas'):
+            self.engagement_deltas = []
+
+        self.engagement_deltas.append(engagement_delta)
+        if len(self.engagement_deltas) > 5:
+            self.engagement_deltas.pop(0)
+
+        smoothed_delta = np.mean(self.engagement_deltas)
+
+        reward = smoothed_delta * 50  # Reduced scaling
+        reward = np.tanh(reward)
+
+        if user_spoke:
+            reward += 0.1
 
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)

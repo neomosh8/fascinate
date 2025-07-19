@@ -35,39 +35,57 @@ class EngagementWidget:
         self.time_counter += 1
 
     def draw(self, screen: pygame.Surface):
-        """Draw ECG-style engagement plot."""
-        self.surface.fill((0, 0, 0, 180))  # Semi-transparent background
+        """Render the engagement plot on a transparent surface with a semi-transparent grid of dots and border."""
+        # Fully clear (transparent RGBA)
+        self.surface.fill((0, 0, 0, 0))
 
+        # Semi-transparent dot field
+        dot_spacing = 10
+        dot_radius = 1
+        dot_color = (0, 160, 0, 128)  # 50 % alpha
+
+        for y in range(0, self.rect.height, dot_spacing):
+            for x in range(0, self.rect.width, dot_spacing):
+                pygame.draw.circle(self.surface, dot_color, (x, y), dot_radius)
+
+        # Engagement waveform
         if len(self.engagement_history) > 1:
-            # Draw grid lines
-            for i in range(0, self.rect.height, 20):
-                pygame.draw.line(self.surface, (0, 50, 0), (0, i), (self.rect.width, i), 1)
-            for i in range(0, self.rect.width, 20):
-                pygame.draw.line(self.surface, (0, 50, 0), (i, 0), (i, self.rect.height), 1)
-
-            # Draw engagement line
-            points = []
-            for i, engagement in enumerate(self.engagement_history):
-                x = i
-                y = int(self.rect.height - (engagement * self.rect.height))
-                points.append((x, y))
-
+            points = [
+                (i, int(self.rect.height - v * self.rect.height))
+                for i, v in enumerate(self.engagement_history)
+            ]
             if len(points) > 1:
                 pygame.draw.lines(self.surface, (0, 255, 100), False, points, 2)
 
-                # Add glow effect
+                # Soft glow
                 for i in range(3):
-                    glow_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
-                    pygame.draw.lines(glow_surface, (0, 255, 100, 50), False, points, 4 + i*2)
-                    self.surface.blit(glow_surface, (0, 0))
+                    glow = pygame.Surface(
+                        (self.rect.width, self.rect.height), pygame.SRCALPHA
+                    )
+                    pygame.draw.lines(glow, (0, 255, 100, 50), False, points, 4 + i * 2)
+                    self.surface.blit(glow, (0, 0))
 
-        # Draw current value text
+        # Current engagement value text
         if self.engagement_history:
-            current_val = self.engagement_history[-1]
             font = pygame.freetype.Font(None, 16)
-            text = f"{current_val:.3f}"
-            font.render_to(self.surface, (5, 5), text, (0, 255, 100))
+            font.render_to(
+                self.surface,
+                (5, 5),
+                f"{self.engagement_history[-1]:.3f}",
+                (0, 255, 100),
+            )
 
+        # Semi-transparent light-green border
+        border_color = (120, 255, 120, 128)  # 50 % alpha
+        pygame.draw.rect(
+            self.surface,
+            border_color,
+            self.surface.get_rect(),
+            width=2,
+            border_radius=8,
+        )
+
+        # Blit to main screen
         screen.blit(self.surface, self.rect)
 
 
@@ -372,25 +390,29 @@ class PygameConversationUI:
         self.audio_level = 0.0
 
     def _layout_buttons(self):
-        # build the speak button
-        speak_w, speak_h = 260, 70  # wider and taller (was 200 × 60)
+        """Create the Speak, Summary and Stop buttons as one centered stack."""
+        # Main button position and size
+        speak_w, speak_h = 260, 70
         speak_x = self.screen_width // 2 - speak_w // 2
-        speak_y = 500
+        speak_y = 620  # was 500: lower = further down
+
+        # Build Speak
         self.speak_button_rect = pygame.Rect(speak_x, speak_y, speak_w, speak_h)
 
-        # build summary and stop directly under it
+        # Summary and Stop share 105 % of Speak width
         total_w = int(speak_w * 1.05)
         child_w = total_w // 2
         child_h = 30
         left = self.speak_button_rect.centerx - total_w // 2
-        child_y = self.speak_button_rect.bottom + 12
+        child_y = self.speak_button_rect.bottom + 14  # gap under Speak
 
         self.summary_button_rect = pygame.Rect(left, child_y, child_w, child_h)
         self.stop_button_rect = pygame.Rect(left + child_w, child_y, child_w, child_h)
 
+        # Guide text centred under Stop
         self.guide_pos = (
             self.speak_button_rect.centerx,
-            self.stop_button_rect.bottom + 10
+            self.stop_button_rect.bottom + 12
         )
 
     def _queue_engagement_update(self, engagement: float):
@@ -491,12 +513,12 @@ class PygameConversationUI:
             text: str,
             font: pygame.freetype.Font,
             *,
-            icon: str | None = None,  # ← new
+            icon: str | None = None,
             filled: bool = True,
             active: bool = False,
             hover: bool = False,
     ):
-        # Optional solid background
+        # Optional solid fill
         if filled:
             if active:
                 fill = self.button_active_color
@@ -504,29 +526,32 @@ class PygameConversationUI:
                 fill = self.button_hover_color
             else:
                 fill = self.button_color
-            pygame.draw.rect(self.screen, fill, rect, border_radius=8)
+            pygame.draw.rect(self.screen, fill, rect, border_radius=14)
 
-        # Light-green outline
-        pygame.draw.rect(self.screen, self.border_color, rect, 2, border_radius=8)
+        # 70 % transparent light-green border
+        border_surf = pygame.Surface(rect.size, pygame.SRCALPHA)
+        border_color = (180, 255, 180, 178)  # alpha 178 ≈ 70 %
+        pygame.draw.rect(border_surf, border_color, border_surf.get_rect(),
+                         width=2, border_radius=14)  # rounder radius (14)
+        self.screen.blit(border_surf, rect.topleft)
 
-        # ---------- render icon + label ----------
+        # Render icon and text
         if icon:
             icon_surf, icon_rect = font.render(icon, self.text_color)
             label_surf, label_rect = font.render(text, self.text_color)
 
-            # spacing: 8-px gap after the icon
-            total_w = icon_rect.width + 8 + label_rect.width
+            gap = 8
+            total_w = icon_rect.width + gap + label_rect.width
             start_x = rect.centerx - total_w // 2
             centre_y = rect.centery
 
             icon_rect.topleft = (start_x, centre_y - icon_rect.height // 2)
-            label_rect.topleft = (start_x + icon_rect.width + 8,
+            label_rect.topleft = (start_x + icon_rect.width + gap,
                                   centre_y - label_rect.height // 2)
 
             self.screen.blit(icon_surf, icon_rect)
             self.screen.blit(label_surf, label_rect)
         else:
-            # plain label
             label_surf, label_rect = font.render(text, self.text_color)
             label_rect.center = rect.center
             self.screen.blit(label_surf, label_rect)

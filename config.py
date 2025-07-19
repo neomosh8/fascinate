@@ -55,3 +55,6 @@ MAX_RECORDING_DURATION = 30  # seconds
 # Token limits
 MAX_GPT_TOKENS = 100
 MAX_CONVERSATION_TURNS = 100
+
+# Auto-advance timeout
+AUTO_ADVANCE_TIMEOUT_SEC = 5  # seconds to wait before auto advancing

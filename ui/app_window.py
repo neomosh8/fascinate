@@ -36,7 +36,8 @@ class ConversationUI:
         # Bind orchestrator callbacks
         self.orchestrator.ui_callbacks = {
             'update_engagement': self._queue_engagement_update,
-            'update_transcript': self._queue_transcript_update
+            'update_transcript': self._queue_transcript_update,
+            'update_countdown': self._queue_countdown_update
         }
 
         # Start update loop
@@ -107,6 +108,10 @@ class ConversationUI:
         self.status_label = ttk.Label(control_frame, text="Ready")
         self.status_label.pack(side=tk.LEFT, padx=20)
 
+        # Countdown label
+        self.countdown_label = ttk.Label(control_frame, text="", foreground="orange")
+        self.countdown_label.pack(side=tk.LEFT, padx=10)
+
         # Stop button
         self.stop_button = ttk.Button(
             control_frame,
@@ -123,6 +128,10 @@ class ConversationUI:
         """Queue transcript update (thread-safe)."""
         self.update_queue.put(('transcript', text))
 
+    def _queue_countdown_update(self, seconds_left: int):
+        """Queue countdown update (thread-safe)."""
+        self.update_queue.put(('countdown', seconds_left))
+
     def _process_updates(self):
         """Process queued updates in main thread."""
         try:
@@ -133,6 +142,8 @@ class ConversationUI:
                     self._update_engagement_plot(data)
                 elif update_type == 'transcript':
                     self._update_transcript(data)
+                elif update_type == 'countdown':
+                    self._update_countdown(data)
 
         except queue.Empty:
             pass
@@ -163,12 +174,23 @@ class ConversationUI:
         self.transcript.insert(tk.END, text + '\n\n')
         self.transcript.see(tk.END)
 
+    def _update_countdown(self, seconds_left: int):
+        """Update countdown display."""
+        if seconds_left > 0:
+            self.countdown_label.config(text=f"Auto-advance in {seconds_left}s")
+        else:
+            self.countdown_label.config(text="")
+
     def _on_button_press(self, event):
         """Handle button press - start recording."""
         if not self.is_recording:
             self.is_recording = True
             self.speak_button.config(bg='red', text='Recording...')
             self.status_label.config(text="Recording...")
+            self.countdown_label.config(text="")
+
+            # Cancel auto-advance timer
+            self.orchestrator.cancel_auto_advance_timer()
 
             # Start recording
             self.orchestrator.stt.start_recording()

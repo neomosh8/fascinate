@@ -42,27 +42,29 @@ class RealTimeBanditDashboard:
         self.current_strategy = None
         self.current_reward = None
         self.last_update_time = 0
+        self.current_state = None
 
         # Animation
         self.pulse_timer = 0
         self.highlight_strategy = None
         self.highlight_timer = 0
 
-    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
+    def update(self, bandit_agent, latest_strategy=None, latest_reward=None, state=None):
         """Update dashboard with latest data."""
         if latest_strategy:
             self.current_strategy = latest_strategy
             self.highlight_strategy = latest_strategy
+            self.current_state = state
 
-            if latest_reward is None:
-                # Indicate strategy is currently being spoken
+            if state == "speaking" or latest_reward is None:
                 self.current_reward = "SPEAKING..."
-                self.highlight_timer = 120
+                self.highlight_timer = 180
             else:
                 self.current_reward = latest_reward
-                self.reward_history.append(latest_reward)
-                self.strategy_history.append((latest_strategy, latest_reward))
-                self.highlight_timer = 60  # Frames to highlight
+                if latest_reward is not None:
+                    self.reward_history.append(latest_reward)
+                    self.strategy_history.append((latest_strategy, latest_reward))
+                self.highlight_timer = 90
 
         self.pulse_timer += 1
         if self.highlight_timer > 0:
@@ -527,9 +529,9 @@ class BanditVisualizationDashboard:
     def __init__(self, screen_width: int, screen_height: int):
         self.dashboard = RealTimeBanditDashboard(screen_width, screen_height)
 
-    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
+    def update(self, bandit_agent, latest_strategy=None, latest_reward=None, state=None):
         """Update dashboard with latest bandit data."""
-        self.dashboard.update(bandit_agent, latest_strategy, latest_reward)
+        self.dashboard.update(bandit_agent, latest_strategy, latest_reward, state)
 
     def draw(self, screen: pygame.Surface, bandit_agent):
         """Draw the dashboard."""

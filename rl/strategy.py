@@ -32,6 +32,16 @@ class Strategy:
             f"and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
         )
 
+    def to_key(self) -> str:
+        """Return a compact key for dictionary indexing."""
+        return f"{self.tone}|{self.topic}|{self.emotion}|{self.hook}"
+
+    @classmethod
+    def from_key(cls, key: str) -> 'Strategy':
+        """Reconstruct a Strategy from a key string."""
+        tone, topic, emotion, hook = key.split('|')
+        return cls(tone=tone, topic=topic, emotion=emotion, hook=hook, index=0)
+
     def add_example(self, response: str, engagement_delta: float):
         """Add a response example with engagement result to memory."""
         example = (response, engagement_delta)

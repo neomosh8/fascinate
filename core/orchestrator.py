@@ -14,7 +14,7 @@ from audio.text_to_speech import TextToSpeech
 from conversation.gpt_wrapper import GPTConversation
 from eeg.device_manager import EEGDeviceManager
 from eeg.engagement_scorer import EngagementScorer
-from rl.hierarchical_bandit import HierarchicalBanditAgent
+from rl.contextual_bandit import ContextualBanditAgent
 
 
 @dataclass
@@ -44,14 +44,14 @@ class ConversationOrchestrator:
         self.engagement_scorer = EngagementScorer()
         self.event_loop = None
 
-        # Initialize Hierarchical Bandit agent
-        self.bandit_agent = HierarchicalBanditAgent()
+        # Initialize Contextual Bandit agent
+        self.bandit_agent = ContextualBanditAgent(context_window_size=5)
 
         # Load saved bandit state
         from pathlib import Path
         models_path = Path("models")
         models_path.mkdir(exist_ok=True)
-        bandit_file = models_path / "hierarchical_bandit.json"
+        bandit_file = models_path / "contextual_bandit.pkl"
         try:
             self.bandit_agent.load(bandit_file)
             print(f"Loaded bandit state from {bandit_file}")
@@ -310,6 +310,9 @@ class ConversationOrchestrator:
         # 2. Get current engagement (before response)
         engagement_before = self.engagement_scorer.current_engagement
 
+        # Build context vector before selecting strategy
+        context_vector = self.bandit_agent._build_context_vector()
+
         # 3. Bandit agent selects strategy
         strategy = self.bandit_agent.select_strategy()
 
@@ -341,7 +344,10 @@ class ConversationOrchestrator:
         strategy.add_example(assistant_text, engagement_after - engagement_before)
 
         # 7. Update bandit agent
-        self.bandit_agent.update(strategy, reward)
+        self.bandit_agent.update(strategy, context_vector, reward)
+
+        # Add turn to context history
+        self.bandit_agent.context.add_turn(user_text, assistant_text, strategy, engagement_after)
 
         # Send update to UI for visualization
         if 'update_strategy' in self.ui_callbacks:
@@ -474,7 +480,7 @@ class ConversationOrchestrator:
         save_path.mkdir(exist_ok=True)
 
         try:
-            self.bandit_agent.save(save_path / "hierarchical_bandit.json")
+            self.bandit_agent.save(save_path / "contextual_bandit.pkl")
             print("Bandit state saved successfully")
         except Exception as e:
             print(f"Failed to save bandit state: {e}")

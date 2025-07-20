@@ -1,4 +1,4 @@
-"""Real-time visualization for hierarchical bandit learning."""
+"""Real-time visualization for bandit learning."""
 
 import pygame
 import pygame.freetype
@@ -7,7 +7,7 @@ import math
 from collections import deque
 from typing import Dict
 
-from rl.hierarchical_bandit import HierarchicalBanditAgent
+
 
 
 class ComponentPerformanceChart:
@@ -116,21 +116,28 @@ class ConvergenceRadarChart:
         self.components = ["tone", "topic", "emotion", "hook"]
         self.font = pygame.freetype.Font(None, 14)
 
-    def draw(self, screen: pygame.Surface, bandit_agent: HierarchicalBanditAgent):
+    def draw(self, screen: pygame.Surface, bandit_agent):
         scores = self._calculate_convergence_scores(bandit_agent)
         self._draw_radar_grid(screen)
         self._draw_convergence_polygon(screen, scores)
         self._draw_labels(screen, scores)
 
-    def _calculate_convergence_scores(self, bandit_agent: HierarchicalBanditAgent) -> Dict[str, float]:
+    def _calculate_convergence_scores(self, bandit_agent) -> Dict[str, float]:
         scores = {}
-        for name, bandit in bandit_agent.bandits.items():
-            intervals = bandit.get_confidence_intervals()
-            if intervals:
-                avg_width = np.mean([hi - lo for lo, hi in intervals.values()])
-                scores[name] = max(0, 1 - avg_width)
-            else:
-                scores[name] = 0.0
+        if hasattr(bandit_agent, 'bandits'):
+            for name, bandit in bandit_agent.bandits.items():
+                intervals = bandit.get_confidence_intervals()
+                if intervals:
+                    avg_width = np.mean([hi - lo for lo, hi in intervals.values()])
+                    scores[name] = max(0, 1 - avg_width)
+                else:
+                    scores[name] = 0.0
+        else:
+            utilization = getattr(bandit_agent, 'get_performance_summary', lambda: {})()
+            value = utilization.get('context_utilization', 0) / max(1, utilization.get('total_selections', 1))
+            value = np.clip(value, 0.0, 1.0)
+            for comp in self.components:
+                scores[comp] = value
         return scores
 
     def _draw_radar_grid(self, screen: pygame.Surface):
@@ -273,13 +280,14 @@ class BanditVisualizationDashboard:
         self.font = pygame.freetype.Font(None, 16)
         self._last_known_restart_step = 0
 
-    def update(self, bandit_agent: HierarchicalBanditAgent, latest_strategy=None, latest_reward=None):
+    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
         summary = bandit_agent.get_performance_summary()
         components = summary.get("components", {})
-        self.tone_chart.update(components.get("tone", {}))
-        self.topic_chart.update(components.get("topic", {}))
-        self.emotion_chart.update(components.get("emotion", {}))
-        self.hook_chart.update(components.get("hook", {}))
+        if components:
+            self.tone_chart.update(components.get("tone", {}))
+            self.topic_chart.update(components.get("topic", {}))
+            self.emotion_chart.update(components.get("emotion", {}))
+            self.hook_chart.update(components.get("hook", {}))
         if latest_strategy is not None and latest_reward is not None:
             self.strategy_heatmap.update(latest_strategy, latest_reward)
         self.restart_indicator.update()
@@ -288,11 +296,11 @@ class BanditVisualizationDashboard:
             self.restart_indicator.add_restart("adaptive", last_restart)
         self._last_known_restart_step = last_restart
 
-    def draw(self, screen: pygame.Surface, bandit_agent: HierarchicalBanditAgent):
+    def draw(self, screen: pygame.Surface, bandit_agent):
         overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 50))
         screen.blit(overlay, (0, 0))
-        self.font.render_to(screen, (10, self.screen_height - 30), "HIERARCHICAL BANDIT LEARNING DASHBOARD", (200, 255, 200))
+        self.font.render_to(screen, (10, self.screen_height - 30), "BANDIT LEARNING DASHBOARD", (200, 255, 200))
         self.tone_chart.draw(screen)
         self.topic_chart.draw(screen)
         self.emotion_chart.draw(screen)

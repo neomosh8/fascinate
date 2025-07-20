@@ -201,6 +201,9 @@ class ConversationOrchestrator:
         tts_duration: float,
         user_spoke: bool,
         session_duration: float,
+        user_text: str,
+        assistant_text: str,
+        context_type: str = "normal",
     ) -> float:
         """Calculate reward using windowed TTS engagement analysis."""
 
@@ -257,16 +260,33 @@ class ConversationOrchestrator:
 
         # User interaction bonus
         if user_spoke:
-            reward += 0.2
+            response_quality = self._assess_response_quality(user_text, assistant_text)
+            reward += 0.2 * response_quality
 
         # Session progression
         progression_multiplier = min(1.0 + session_duration / 300, 1.5)
         reward *= progression_multiplier
 
+        # Context-specific adjustments
+        if context_type == "auto_advance":
+            if tts_analysis["positive_trend"] > 0.1:
+                reward += 0.5
+        elif context_type == "cold_start":
+            if engagement_after > 0.4:
+                reward += 0.3
+
         # Clip final reward
         reward = np.clip(reward, -2.0, 2.0)
 
         return reward
+
+    def _assess_response_quality(self, user_text: str, assistant_text: str) -> float:
+        """Simple heuristic to judge response quality."""
+        if not assistant_text.strip():
+            return 0.0
+        if '?' in user_text and '?' not in assistant_text:
+            return 0.5
+        return 1.0
 
     async def _speak_with_engagement_tracking(
         self, text: str, strategy
@@ -366,6 +386,9 @@ class ConversationOrchestrator:
             tts_end - tts_start,
             user_spoke,
             session_duration,
+            user_text,
+            assistant_text,
+            self.bandit_agent._classify_context(user_text, user_spoke),
         )
 
         # Calculate final engagement for logging

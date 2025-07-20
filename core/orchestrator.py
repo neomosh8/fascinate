@@ -32,6 +32,14 @@ class TurnData:
     duration: float
 
 
+class TurnState:
+    """Simple enum for turn processing state."""
+
+    STRATEGY_SELECTED = "selected"
+    SPEAKING = "speaking"
+    COMPLETED = "completed"
+
+
 class ConversationOrchestrator:
     """Orchestrates the entire conversation flow with proper engagement tracking."""
 
@@ -359,13 +367,33 @@ class ConversationOrchestrator:
             f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
         )
 
-        # Update UI immediately to show selected strategy before TTS
+        # Update UI with strategy selection
         if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, None))
+            self.ui_callbacks["update_strategy"](
+                {
+                    "strategy": strategy,
+                    "reward": None,
+                    "state": TurnState.STRATEGY_SELECTED,
+                }
+            )
+
+        print(
+            f"[DEBUG] Strategy selected: {strategy.tone}/{strategy.topic}"
+        )
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
         assistant_text = await self.gpt.generate_response(user_text, strategy)
+
+        # Notify UI that assistant is speaking
+        if "update_strategy" in self.ui_callbacks:
+            self.ui_callbacks["update_strategy"](
+                {
+                    "strategy": strategy,
+                    "reward": None,
+                    "state": TurnState.SPEAKING,
+                }
+            )
 
         if "update_transcript" in self.ui_callbacks:
             self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
@@ -411,7 +439,15 @@ class ConversationOrchestrator:
 
         # Send update to UI for visualization
         if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, reward))
+            self.ui_callbacks["update_strategy"](
+                {
+                    "strategy": strategy,
+                    "reward": reward,
+                    "state": TurnState.COMPLETED,
+                }
+            )
+
+        print(f"[DEBUG] Final reward: {reward:.3f}")
 
         # Update state
         self.last_engagement = engagement_after

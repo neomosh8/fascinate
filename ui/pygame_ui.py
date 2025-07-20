@@ -429,7 +429,8 @@ class PygameConversationUI:
 
     def _queue_strategy_update(self, data):
         """Queue strategy update for visualization."""
-        self.update_queue.put(('strategy_update', data))
+        timestamped_data = {"timestamp": time.time(), **data}
+        self.update_queue.put(('strategy_update', timestamped_data))
 
     def extract_words_from_text(self, text: str) -> List[str]:
         """Extract interesting words from AI response."""
@@ -570,6 +571,12 @@ class PygameConversationUI:
                         self.handle_speak_button_press()
                 elif event.key == pygame.K_TAB:
                     self.show_dashboard = not self.show_dashboard
+                    if self.show_dashboard and self.latest_strategy:
+                        self.bandit_dashboard.update(
+                            self.orchestrator.bandit_agent,
+                            self.latest_strategy,
+                            self.latest_reward
+                        )
 
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_SPACE:
@@ -604,12 +611,19 @@ class PygameConversationUI:
     def process_updates(self):
         """Process queued updates."""
         try:
+            strategy_updates = []
+            other_updates = []
+
             while True:
                 update_type, data = self.update_queue.get_nowait()
+                if update_type == 'strategy_update':
+                    strategy_updates.append(data)
+                else:
+                    other_updates.append((update_type, data))
 
+            for update_type, data in other_updates:
                 if update_type == 'engagement':
                     self.engagement_widget.update(data)
-
                 elif update_type == 'transcript':
                     if data.startswith("User:"):
                         text = data[5:].strip()
@@ -618,21 +632,27 @@ class PygameConversationUI:
                     elif data.startswith("Assistant:"):
                         text = data[10:].strip()
                         self.add_message(text, is_user=False)
-
                 elif update_type == 'countdown':
                     pass  # Could add countdown display
 
-                elif update_type == 'strategy_update':
-                    self.latest_strategy, self.latest_reward = data
-                    if self.show_dashboard:
-                        self.bandit_dashboard.update(
-                            self.orchestrator.bandit_agent,
-                            self.latest_strategy,
-                            self.latest_reward,
-                        )
+            if strategy_updates:
+                latest_update = max(strategy_updates, key=lambda x: x['timestamp'])
+                self._process_strategy_update(latest_update)
 
         except queue.Empty:
             pass
+
+    def _process_strategy_update(self, data):
+        """Process strategy update with state handling."""
+        self.latest_strategy = data['strategy']
+        self.latest_reward = data.get('reward')
+
+        self.bandit_dashboard.update(
+            self.orchestrator.bandit_agent,
+            self.latest_strategy,
+            self.latest_reward,
+            state=data.get('state', 'completed')
+        )
 
     def show_session_summary(self):
         """Show session summary in console (could be enhanced)."""

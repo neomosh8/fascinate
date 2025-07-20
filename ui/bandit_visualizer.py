@@ -48,25 +48,32 @@ class RealTimeBanditDashboard:
         self.highlight_strategy = None
         self.highlight_timer = 0
 
-    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
-        """Update dashboard with latest data."""
-        if latest_strategy:
-            self.current_strategy = latest_strategy
-            self.highlight_strategy = latest_strategy
+        # State tracking for proper timing
+        self.processing_state = "idle"  # "idle", "processing", "speaking", "complete"
+        self.processing_timer = 0
+        self.state_start_time = 0
 
-            if latest_reward is None:
-                # Indicate strategy is currently being spoken
-                self.current_reward = "SPEAKING..."
-                self.highlight_timer = 120
-            else:
-                self.current_reward = latest_reward
-                self.reward_history.append(latest_reward)
-                self.strategy_history.append((latest_strategy, latest_reward))
-                self.highlight_timer = 60  # Frames to highlight
+    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
+        """Update dashboard with proper state management."""
+        if latest_strategy and latest_reward is not None:
+            # Completed strategy with measured reward
+            self.current_strategy = latest_strategy
+            self.current_reward = latest_reward
+            self.reward_history.append(latest_reward)
+            self.strategy_history.append((latest_strategy, latest_reward))
+
+            # Show completion state
+            self.processing_state = "complete"
+            self.highlight_timer = 90
+            self.processing_timer = 60
 
         self.pulse_timer += 1
         if self.highlight_timer > 0:
             self.highlight_timer -= 1
+        if self.processing_timer > 0:
+            self.processing_timer -= 1
+        else:
+            self.processing_state = "idle"
 
     def draw(self, screen: pygame.Surface, bandit_agent):
         """Draw the complete dashboard."""
@@ -150,7 +157,7 @@ class RealTimeBanditDashboard:
             self.font_medium.render_to(
                 screen,
                 (x + 15, content_y + 20),
-                "No strategy selected yet",
+                "Waiting for first strategy...",
                 self.text_color,
             )
             return
@@ -165,14 +172,17 @@ class RealTimeBanditDashboard:
 
         comp_y = content_y + 10
         for i, (label, value) in enumerate(components):
-            # Pulsing highlight effect
-            pulse = math.sin(self.pulse_timer * 0.1) * 0.3 + 0.7
-            highlight_alpha = int(255 * pulse) if self.highlight_timer > 0 else 100
+            # Highlight effect based on state
+            if self.processing_state == "complete" and self.highlight_timer > 0:
+                pulse = math.sin(self.pulse_timer * 0.15) * 0.3 + 0.7
+                highlight_alpha = int(255 * pulse * 0.3)
+            else:
+                highlight_alpha = 50
 
             # Component background
             comp_rect = pygame.Rect(x + 10, comp_y, width - 20, 25)
             highlight_surf = pygame.Surface((width - 20, 25), pygame.SRCALPHA)
-            highlight_surf.fill((100, 200, 255, highlight_alpha // 4))
+            highlight_surf.fill((100, 200, 255, highlight_alpha))
             screen.blit(highlight_surf, (x + 10, comp_y))
 
             # Component text
@@ -181,33 +191,38 @@ class RealTimeBanditDashboard:
             )
 
             # Value with color coding
-            color = (
-                self.good_color
-                if isinstance(self.current_reward, (int, float))
-                and self.current_reward > 0.5
-                else self.text_color
-            )
+            if self.processing_state == "complete":
+                color = (
+                    self.good_color
+                    if self.current_reward and self.current_reward > 0.3
+                    else self.text_color
+                )
+            else:
+                color = self.text_color
             self.font_medium.render_to(screen, (x + 15, comp_y + 12), value, color)
 
             comp_y += 30
 
-        # Current reward or speaking indicator
-        if self.current_reward == "SPEAKING...":
-            reward_y = comp_y + 10
-            pulse = math.sin(self.pulse_timer * 0.2) * 0.5 + 0.5
-            color = (255, int(100 + 155 * pulse), 0)
-            self.font_large.render_to(
-                screen, (x + 15, reward_y), "\U0001f3b5 SPEAKING...", color
-            )
-        elif isinstance(self.current_reward, (int, float)):
-            reward_y = comp_y + 10
-            reward_color = (
-                self.good_color if self.current_reward > 0 else self.bad_color
-            )
+        # Current reward with state indicator
+        reward_y = comp_y + 10
+        if self.current_reward is not None:
+            if self.processing_state == "complete" and self.processing_timer > 0:
+                reward_color = (
+                    self.good_color if self.current_reward > 0 else self.bad_color
+                )
+                status_text = "\u2705 MEASURED"
+                self.font_small.render_to(
+                    screen, (x + 15, reward_y - 15), status_text, self.accent_color
+                )
+            else:
+                reward_color = (
+                    self.good_color if self.current_reward > 0 else self.bad_color
+                )
+
             self.font_large.render_to(
                 screen,
                 (x + 15, reward_y),
-                f"\U0001f4ca REWARD: {self.current_reward:.3f}",
+                f"REWARD: {self.current_reward:.3f}",
                 reward_color,
             )
 

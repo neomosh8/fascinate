@@ -359,10 +359,6 @@ class ConversationOrchestrator:
             f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
         )
 
-        # Update UI immediately to show selected strategy before TTS
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, None))
-
         # 4. Generate GPT response
         self.logger.info("Generating response...")
         assistant_text = await self.gpt.generate_response(user_text, strategy)
@@ -409,7 +405,7 @@ class ConversationOrchestrator:
             user_text, assistant_text, strategy, engagement_after
         )
 
-        # Send update to UI for visualization
+        # Send update to UI after processing is complete
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, reward))
 
@@ -417,7 +413,7 @@ class ConversationOrchestrator:
         self.last_engagement = engagement_after
         self.turn_count += 1
 
-        # Start auto-advance timer
+        # Start auto-advance timer for next turn
         self.start_auto_advance_timer()
 
         # Create turn data

@@ -183,7 +183,8 @@ class RealTimeBanditDashboard:
             # Value with color coding
             color = (
                 self.good_color
-                if self.current_reward and self.current_reward > 0.5
+                if isinstance(self.current_reward, (int, float))
+                and self.current_reward > 0.5
                 else self.text_color
             )
             self.font_medium.render_to(screen, (x + 15, comp_y + 12), value, color)

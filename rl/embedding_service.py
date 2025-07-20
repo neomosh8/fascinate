@@ -22,7 +22,9 @@ class EmbeddingService:
         )
         embedding = np.array(response.data[0].embedding)
         self.cache[text] = embedding
+        print('embeding',embedding)
         return embedding
+
 
     def embed_strategy(self, strategy: Strategy) -> np.ndarray:
         """Embed strategy represented as text."""

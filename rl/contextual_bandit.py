@@ -160,14 +160,74 @@ class ContextualBanditAgent:
             recents.extend(rewards[-5:])
         return recents[-20:]
 
+    def _calculate_component_stats(self) -> Dict[str, Dict]:
+        """Aggregate simple statistics for strategy components."""
+        components = {
+            'tone': {},
+            'topic': {},
+            'emotion': {},
+            'hook': {},
+        }
+
+        for key, rewards in self.strategy_rewards.items():
+            tone, topic, emotion, hook = key.split('|')
+            for comp_name, arm in [
+                ('tone', tone),
+                ('topic', topic),
+                ('emotion', emotion),
+                ('hook', hook),
+            ]:
+                entry = components[comp_name].setdefault(arm, [])
+                entry.extend(rewards)
+
+        component_summary: Dict[str, Dict] = {}
+        for comp_name, arms in components.items():
+            if not arms:
+                continue
+            usage_stats = {}
+            best_choice = None
+            best_score = float('-inf')
+            for arm, arm_rewards in arms.items():
+                usage_count = len(arm_rewards)
+                avg_reward = float(np.mean(arm_rewards)) if arm_rewards else 0.0
+                recent_avg = float(np.mean(arm_rewards[-5:])) if arm_rewards else 0.0
+                success_rate = float(sum(r > 0 for r in arm_rewards) / usage_count) if usage_count else 0.0
+                usage_stats[arm] = {
+                    'usage_count': usage_count,
+                    'average_reward': avg_reward,
+                    'recent_average': recent_avg,
+                    'success_rate': success_rate,
+                }
+                if avg_reward > best_score:
+                    best_score = avg_reward
+                    best_choice = arm
+
+            component_summary[comp_name] = {
+                'best_choice': best_choice,
+                'best_score': best_score,
+                'confidence_intervals': {},
+                'usage_stats': usage_stats,
+            }
+
+        return component_summary
+
     def get_performance_summary(self) -> Dict:
-        return {
+        """Return performance metrics compatible with old interface."""
+        recent = self._get_recent_performance()
+        summary = {
             'total_selections': self.total_selections,
             'strategies_tried': len(self.strategy_rewards),
             'top_strategies': [s.to_key() for s in self._get_top_performing_strategies(5)],
             'context_utilization': self._calculate_context_utilization(),
-            'recent_rewards': self._get_recent_performance(),
+            'recent_rewards': recent,
+            'average_recent_reward': float(np.mean(recent)) if recent else 0.0,
+            'components': self._calculate_component_stats(),
+            'restart_stats': {
+                'total_restarts': 0,
+                'last_restart_step': 0,
+            },
         }
+        return summary
 
     # Optional save/load for persistence
     def save(self, filepath):

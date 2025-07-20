@@ -20,9 +20,10 @@ from rl.contextual_bandit import ContextualBanditAgent
 @dataclass
 class TurnData:
     """Data for a single conversation turn."""
+
     user_text: str
     user_spoke: bool
-    strategy: 'Strategy'
+    strategy: "Strategy"
     assistant_text: str
     engagement_before: float
     engagement_during_tts: List[float]  # Track engagement throughout TTS
@@ -49,6 +50,7 @@ class ConversationOrchestrator:
 
         # Load saved bandit state
         from pathlib import Path
+
         models_path = Path("models")
         models_path.mkdir(exist_ok=True)
         bandit_file = models_path / "contextual_bandit.pkl"
@@ -85,9 +87,9 @@ class ConversationOrchestrator:
     def _on_eeg_data(self, ch1_samples, ch2_samples):
         """Process incoming EEG data and track TTS engagement."""
         import numpy as np
+
         engagement = self.engagement_scorer.process_chunk(
-            np.array(ch1_samples),
-            np.array(ch2_samples)
+            np.array(ch1_samples), np.array(ch2_samples)
         )
 
         # Track engagement during TTS playback
@@ -95,35 +97,38 @@ class ConversationOrchestrator:
             self.tts_engagement_buffer.append(engagement)
 
         # Update UI if callback provided
-        if 'update_engagement' in self.ui_callbacks:
-            self.ui_callbacks['update_engagement'](engagement)
+        if "update_engagement" in self.ui_callbacks:
+            self.ui_callbacks["update_engagement"](engagement)
 
     # In core/orchestrator.py, add this method after _on_eeg_data method (around line 70)
 
-    def _calculate_tts_engagement_score(self, engagement_during_tts: List[float],
-                                        tts_duration: float) -> Dict[str, float]:
+    def _calculate_tts_engagement_score(
+        self, engagement_during_tts: List[float], tts_duration: float
+    ) -> Dict[str, float]:
         """Calculate comprehensive TTS engagement score using windowed analysis."""
 
         if not engagement_during_tts or tts_duration < 0.5:
             return {
-                'mean_engagement': 0.5,
-                'percentile_75': 0.5,
-                'peak_engagement': 0.5,
-                'engagement_stability': 0.5,
-                'positive_trend': 0.0,
-                'final_score': 0.5
+                "mean_engagement": 0.5,
+                "percentile_75": 0.5,
+                "peak_engagement": 0.5,
+                "engagement_stability": 0.5,
+                "positive_trend": 0.0,
+                "final_score": 0.5,
             }
 
         # Convert to numpy for easier processing
         engagement_array = np.array(engagement_during_tts)
 
         # 1. Create 1-second windows (overlapping 50%)
-        window_size = max(10, len(engagement_array) // max(1, int(tts_duration)))  # ~10 samples per second
+        window_size = max(
+            10, len(engagement_array) // max(1, int(tts_duration))
+        )  # ~10 samples per second
         step_size = window_size // 2  # 50% overlap
 
         window_scores = []
         for i in range(0, len(engagement_array) - window_size + 1, step_size):
-            window = engagement_array[i:i + window_size]
+            window = engagement_array[i : i + window_size]
             window_mean = np.mean(window)
             window_scores.append(window_mean)
 
@@ -148,28 +153,28 @@ class ConversationOrchestrator:
         # Trend analysis - did engagement improve during speech?
         if len(engagement_array) > 5:
             # Compare first third vs last third
-            first_third = np.mean(engagement_array[:len(engagement_array) // 3])
-            last_third = np.mean(engagement_array[-len(engagement_array) // 3:])
+            first_third = np.mean(engagement_array[: len(engagement_array) // 3])
+            last_third = np.mean(engagement_array[-len(engagement_array) // 3 :])
             positive_trend = last_third - first_third
         else:
             positive_trend = 0.0
 
         # 3. Combine into final score
         final_score = (
-                0.5 * percentile_75 +  # Main score: 75th percentile
-                0.2 * mean_engagement +  # Overall level
-                0.1 * min(peak_engagement, 1.0) +  # Peak bonus (capped)
-                0.1 * np.clip(positive_trend, 0, 0.5) +  # Trend bonus
-                0.1 * engagement_stability  # Stability bonus
+            0.5 * percentile_75  # Main score: 75th percentile
+            + 0.2 * mean_engagement  # Overall level
+            + 0.1 * min(peak_engagement, 1.0)  # Peak bonus (capped)
+            + 0.1 * np.clip(positive_trend, 0, 0.5)  # Trend bonus
+            + 0.1 * engagement_stability  # Stability bonus
         )
 
         return {
-            'mean_engagement': float(mean_engagement),
-            'percentile_75': float(percentile_75),
-            'peak_engagement': float(peak_engagement),
-            'engagement_stability': float(engagement_stability),
-            'positive_trend': float(positive_trend),
-            'final_score': float(np.clip(final_score, 0, 1))
+            "mean_engagement": float(mean_engagement),
+            "percentile_75": float(percentile_75),
+            "peak_engagement": float(peak_engagement),
+            "engagement_stability": float(engagement_stability),
+            "positive_trend": float(positive_trend),
+            "final_score": float(np.clip(final_score, 0, 1)),
         }
 
     async def initialize(self, eeg_mac: Optional[str] = None) -> bool:
@@ -189,17 +194,23 @@ class ConversationOrchestrator:
             self.logger.error(f"Initialization failed: {e}")
             return False
 
-    def _calculate_adaptive_reward(self, engagement_before: float,
-                                   engagement_during_tts: List[float],
-                                   tts_duration: float,
-                                   user_spoke: bool, session_duration: float) -> float:
+    def _calculate_adaptive_reward(
+        self,
+        engagement_before: float,
+        engagement_during_tts: List[float],
+        tts_duration: float,
+        user_spoke: bool,
+        session_duration: float,
+    ) -> float:
         """Calculate reward using windowed TTS engagement analysis."""
 
         # Get comprehensive TTS engagement analysis
-        tts_analysis = self._calculate_tts_engagement_score(engagement_during_tts, tts_duration)
+        tts_analysis = self._calculate_tts_engagement_score(
+            engagement_during_tts, tts_duration
+        )
 
         # Use the sophisticated TTS score instead of simple average
-        engagement_after = tts_analysis['final_score']
+        engagement_after = tts_analysis["final_score"]
         engagement_delta = engagement_after - engagement_before
 
         # Store engagement history for adaptive normalization
@@ -219,30 +230,30 @@ class ConversationOrchestrator:
         # Bonuses based on TTS analysis
 
         # 1. High overall engagement bonus
-        if tts_analysis['percentile_75'] > 0.6:
-            reward += 0.3 * (tts_analysis['percentile_75'] - 0.6)
+        if tts_analysis["percentile_75"] > 0.6:
+            reward += 0.3 * (tts_analysis["percentile_75"] - 0.6)
 
         # 2. Peak engagement bonus (rewards exciting moments)
-        if tts_analysis['peak_engagement'] > 0.8:
-            reward += 0.2 * (tts_analysis['peak_engagement'] - 0.8)
+        if tts_analysis["peak_engagement"] > 0.8:
+            reward += 0.2 * (tts_analysis["peak_engagement"] - 0.8)
 
         # 3. Positive trend bonus (engagement improved during speech)
-        if tts_analysis['positive_trend'] > 0.05:
-            reward += 0.2 * min(tts_analysis['positive_trend'], 0.3)
+        if tts_analysis["positive_trend"] > 0.05:
+            reward += 0.2 * min(tts_analysis["positive_trend"], 0.3)
 
         # 4. Stability bonus (consistent engagement)
-        if tts_analysis['engagement_stability'] > 0.7:
-            reward += 0.15 * (tts_analysis['engagement_stability'] - 0.7)
+        if tts_analysis["engagement_stability"] > 0.7:
+            reward += 0.15 * (tts_analysis["engagement_stability"] - 0.7)
 
         # 5. Penalties
 
         # Penalty for low 75th percentile (most of the time was boring)
-        if tts_analysis['percentile_75'] < 0.4:
-            reward -= 0.3 * (0.4 - tts_analysis['percentile_75'])
+        if tts_analysis["percentile_75"] < 0.4:
+            reward -= 0.3 * (0.4 - tts_analysis["percentile_75"])
 
         # Penalty for negative trend (lost attention during speech)
-        if tts_analysis['positive_trend'] < -0.05:
-            reward -= 0.2 * abs(tts_analysis['positive_trend'])
+        if tts_analysis["positive_trend"] < -0.05:
+            reward -= 0.2 * abs(tts_analysis["positive_trend"])
 
         # User interaction bonus
         if user_spoke:
@@ -257,7 +268,9 @@ class ConversationOrchestrator:
 
         return reward
 
-    async def _speak_with_engagement_tracking(self, text: str, strategy) -> Tuple[float, float, List[float]]:
+    async def _speak_with_engagement_tracking(
+        self, text: str, strategy
+    ) -> Tuple[float, float, List[float]]:
         """Speak text while tracking engagement throughout."""
 
         # Clear TTS engagement buffer and start tracking
@@ -278,9 +291,13 @@ class ConversationOrchestrator:
             self.tts_tracking_active = False
             engagement_during_tts = list(self.tts_engagement_buffer)
 
-            self.logger.info(f"TTS engagement tracking: {len(engagement_during_tts)} samples over {tts_end - tts_start:.1f}s")
+            self.logger.info(
+                f"TTS engagement tracking: {len(engagement_during_tts)} samples over {tts_end - tts_start:.1f}s"
+            )
             if engagement_during_tts:
-                self.logger.info(f"Engagement range: {min(engagement_during_tts):.3f} - {max(engagement_during_tts):.3f}")
+                self.logger.info(
+                    f"Engagement range: {min(engagement_during_tts):.3f} - {max(engagement_during_tts):.3f}"
+                )
 
             return tts_start, tts_end, engagement_during_tts
 
@@ -304,8 +321,10 @@ class ConversationOrchestrator:
             user_text = ""
         user_spoke = len(user_text.strip()) > 0
 
-        if 'update_transcript' in self.ui_callbacks:
-            self.ui_callbacks['update_transcript'](f"User: {user_text if user_spoke else '[Silent]'}")
+        if "update_transcript" in self.ui_callbacks:
+            self.ui_callbacks["update_transcript"](
+                f"User: {user_text if user_spoke else '[Silent]'}"
+            )
 
         # 2. Get current engagement (before response)
         engagement_before = self.engagement_scorer.current_engagement
@@ -320,25 +339,41 @@ class ConversationOrchestrator:
             f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
         )
 
+        # Update UI immediately to show selected strategy before TTS
+        if "update_strategy" in self.ui_callbacks:
+            self.ui_callbacks["update_strategy"]((strategy, None))
+
         # 4. Generate GPT response
         self.logger.info("Generating response...")
         assistant_text = await self.gpt.generate_response(user_text, strategy)
 
-        if 'update_transcript' in self.ui_callbacks:
-            self.ui_callbacks['update_transcript'](f"Assistant: {assistant_text}")
+        if "update_transcript" in self.ui_callbacks:
+            self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
 
         # 5. Speak response with proper engagement tracking
         self.logger.info("Speaking response with engagement tracking...")
-        tts_start, tts_end, engagement_during_tts = await self._speak_with_engagement_tracking(assistant_text, strategy)
+        tts_start, tts_end, engagement_during_tts = (
+            await self._speak_with_engagement_tracking(assistant_text, strategy)
+        )
 
         # 6. Calculate reward using proper TTS engagement data
-        session_duration = time.time() - getattr(self, 'session_start_time', time.time())
+        session_duration = time.time() - getattr(
+            self, "session_start_time", time.time()
+        )
         reward = self._calculate_adaptive_reward(
-            engagement_before, engagement_during_tts, tts_end - tts_start, user_spoke, session_duration
+            engagement_before,
+            engagement_during_tts,
+            tts_end - tts_start,
+            user_spoke,
+            session_duration,
         )
 
         # Calculate final engagement for logging
-        engagement_after = np.mean(engagement_during_tts) if engagement_during_tts else self.engagement_scorer.current_engagement
+        engagement_after = (
+            np.mean(engagement_during_tts)
+            if engagement_during_tts
+            else self.engagement_scorer.current_engagement
+        )
 
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
@@ -347,11 +382,13 @@ class ConversationOrchestrator:
         self.bandit_agent.update(strategy, context_vector, reward)
 
         # Add turn to context history
-        self.bandit_agent.context.add_turn(user_text, assistant_text, strategy, engagement_after)
+        self.bandit_agent.context.add_turn(
+            user_text, assistant_text, strategy, engagement_after
+        )
 
         # Send update to UI for visualization
-        if 'update_strategy' in self.ui_callbacks:
-            self.ui_callbacks['update_strategy']((strategy, reward))
+        if "update_strategy" in self.ui_callbacks:
+            self.ui_callbacks["update_strategy"]((strategy, reward))
 
         # Update state
         self.last_engagement = engagement_after
@@ -370,25 +407,29 @@ class ConversationOrchestrator:
             engagement_during_tts=engagement_during_tts,
             engagement_after=engagement_after,
             reward=reward,
-            duration=time.time() - turn_start
+            duration=time.time() - turn_start,
         )
 
         # Enhanced logging
-        self.logger.log_turn({
-            'turn': self.turn_count,
-            'user_text': user_text,
-            'user_spoke': user_spoke,
-            'strategy': strategy.to_prompt(),
-            'assistant_text': assistant_text,
-            'engagement_before': engagement_before,
-            'engagement_during_tts_samples': len(engagement_during_tts),
-            'tts_analysis': self._calculate_tts_engagement_score(engagement_during_tts, tts_end - tts_start),
-            # ADD THIS LINE
-            'engagement_after': engagement_after,
-            'reward': reward,
-            'duration': turn_data.duration,
-            'tts_duration': tts_end - tts_start
-        })
+        self.logger.log_turn(
+            {
+                "turn": self.turn_count,
+                "user_text": user_text,
+                "user_spoke": user_spoke,
+                "strategy": strategy.to_prompt(),
+                "assistant_text": assistant_text,
+                "engagement_before": engagement_before,
+                "engagement_during_tts_samples": len(engagement_during_tts),
+                "tts_analysis": self._calculate_tts_engagement_score(
+                    engagement_during_tts, tts_end - tts_start
+                ),
+                # ADD THIS LINE
+                "engagement_after": engagement_after,
+                "reward": reward,
+                "duration": turn_data.duration,
+                "tts_duration": tts_end - tts_start,
+            }
+        )
 
         return turn_data
 
@@ -408,8 +449,8 @@ class ConversationOrchestrator:
             strategy = self.bandit_agent.select_strategy()
             greeting = await self.gpt.generate_response("", strategy)
 
-            if 'update_transcript' in self.ui_callbacks:
-                self.ui_callbacks['update_transcript'](f"Assistant: {greeting}")
+            if "update_transcript" in self.ui_callbacks:
+                self.ui_callbacks["update_transcript"](f"Assistant: {greeting}")
 
             await self._speak_with_engagement_tracking(greeting, strategy)
 
@@ -443,19 +484,19 @@ class ConversationOrchestrator:
         """Wait for the timeout and queue a silent turn."""
         try:
             for seconds_left in range(self.auto_advance_timeout, 0, -1):
-                if 'update_countdown' in self.ui_callbacks:
-                    self.ui_callbacks['update_countdown'](seconds_left)
+                if "update_countdown" in self.ui_callbacks:
+                    self.ui_callbacks["update_countdown"](seconds_left)
                 await asyncio.sleep(1)
 
-            if 'update_countdown' in self.ui_callbacks:
-                self.ui_callbacks['update_countdown'](0)
+            if "update_countdown" in self.ui_callbacks:
+                self.ui_callbacks["update_countdown"](0)
 
             self.logger.info("Auto-advancing conversation (user silent)")
             empty_audio = b""
             asyncio.create_task(self.process_turn(empty_audio))
         except asyncio.CancelledError:
-            if 'update_countdown' in self.ui_callbacks:
-                self.ui_callbacks['update_countdown'](0)
+            if "update_countdown" in self.ui_callbacks:
+                self.ui_callbacks["update_countdown"](0)
         finally:
             self.auto_advance_task = None
 
@@ -476,6 +517,7 @@ class ConversationOrchestrator:
 
         # Save bandit agent
         from pathlib import Path
+
         save_path = Path("models")
         save_path.mkdir(exist_ok=True)
 
@@ -493,20 +535,20 @@ class ConversationOrchestrator:
         import json
 
         def serialize_object(obj):
-            if hasattr(obj, '__dict__'):
+            if hasattr(obj, "__dict__"):
                 return obj.__dict__
-            elif hasattr(obj, 'tone'):
+            elif hasattr(obj, "tone"):
                 return {
-                    'tone': obj.tone,
-                    'topic': obj.topic,
-                    'emotion': obj.emotion,
-                    'hook': obj.hook,
-                    'index': obj.index
+                    "tone": obj.tone,
+                    "topic": obj.topic,
+                    "emotion": obj.emotion,
+                    "hook": obj.hook,
+                    "index": obj.index,
                 }
             return str(obj)
 
         try:
-            with open(summary_path, 'w') as f:
+            with open(summary_path, "w") as f:
                 json.dump(summary, f, indent=2, default=serialize_object)
             print(f"Session summary saved to: {summary_path}")
         except Exception as e:
@@ -523,15 +565,20 @@ class ConversationOrchestrator:
         return {
             "session_info": {
                 "total_turns": self.turn_count,
-                "session_duration": time.time() - getattr(self, 'session_start_time', time.time()),
-                "final_engagement": self.last_engagement
+                "session_duration": time.time()
+                - getattr(self, "session_start_time", time.time()),
+                "final_engagement": self.last_engagement,
             },
             "bandit_performance": performance_summary,
             "engagement_stats": {
                 "current_engagement": self.engagement_scorer.current_engagement,
-                "baseline_collected": getattr(self.engagement_scorer, 'baseline_collected', False),
-                "adaptive_baseline_initialized": getattr(self.engagement_scorer, 'baseline_initialized', False)
-            }
+                "baseline_collected": getattr(
+                    self.engagement_scorer, "baseline_collected", False
+                ),
+                "adaptive_baseline_initialized": getattr(
+                    self.engagement_scorer, "baseline_initialized", False
+                ),
+            },
         }
 
     def print_session_summary(self):
@@ -551,21 +598,33 @@ class ConversationOrchestrator:
         # Bandit Performance
         rl_perf = summary["bandit_performance"]
         if "error" not in rl_perf:
-            print(f"\nAVERAGE RECENT REWARD: {rl_perf.get('average_recent_reward', 'N/A')}")
+            print(
+                f"\nAVERAGE RECENT REWARD: {rl_perf.get('average_recent_reward', 'N/A')}"
+            )
 
             # Component analysis
             print("\n🎯 COMPONENT PERFORMANCE:")
-            for component, data in rl_perf.get('components', {}).items():
+            for component, data in rl_perf.get("components", {}).items():
                 print(f"\n📊 {component.upper()}:")
-                print(f"   Best Choice: {data.get('best_choice', 'N/A')} (score: {data.get('best_score', 0):.3f})")
-                usage_stats = data.get('usage_stats', {})
-                sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1].get('average_reward', 0), reverse=True)
+                print(
+                    f"   Best Choice: {data.get('best_choice', 'N/A')} (score: {data.get('best_score', 0):.3f})"
+                )
+                usage_stats = data.get("usage_stats", {})
+                sorted_arms = sorted(
+                    usage_stats.items(),
+                    key=lambda x: x[1].get("average_reward", 0),
+                    reverse=True,
+                )
                 print("   Top Performers:")
                 for i, (arm, stats) in enumerate(sorted_arms[:3]):
-                    recent_avg = stats.get('recent_average', stats.get('average_reward', 0))
-                    print(f"     {i+1}. {arm}: {recent_avg:.3f} recent avg ({stats.get('usage_count', 0)} uses)")
+                    recent_avg = stats.get(
+                        "recent_average", stats.get("average_reward", 0)
+                    )
+                    print(
+                        f"     {i+1}. {arm}: {recent_avg:.3f} recent avg ({stats.get('usage_count', 0)} uses)"
+                    )
 
-            restart_stats = rl_perf.get('restart_stats', {})
+            restart_stats = rl_perf.get("restart_stats", {})
             print("\n🔄 ADAPTIVE RESTARTS:")
             print(f"   Total Restarts: {restart_stats.get('total_restarts', 0)}")
             print(f"   Last Restart: Step {restart_stats.get('last_restart_step', 0)}")

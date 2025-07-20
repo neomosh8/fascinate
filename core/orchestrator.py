@@ -360,8 +360,10 @@ class ConversationOrchestrator:
         )
 
         # Update UI immediately to show selected strategy before TTS
+        # Add a small delay to ensure UI processes this update
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, None))
+            await asyncio.sleep(0.05)  # Small delay to ensure update is processed
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
@@ -409,9 +411,12 @@ class ConversationOrchestrator:
             user_text, assistant_text, strategy, engagement_after
         )
 
-        # Send update to UI for visualization
+        # Send FINAL update to UI with reward - ensure this happens
         if "update_strategy" in self.ui_callbacks:
+            # Force update with both strategy and reward
             self.ui_callbacks["update_strategy"]((strategy, reward))
+            # Log to ensure update was sent
+            self.logger.info(f"UI update sent: strategy={strategy.tone}, reward={reward:.3f}")
 
         # Update state
         self.last_engagement = engagement_after
@@ -446,7 +451,6 @@ class ConversationOrchestrator:
                 "tts_analysis": self._calculate_tts_engagement_score(
                     engagement_during_tts, tts_end - tts_start
                 ),
-                # ADD THIS LINE
                 "engagement_after": engagement_after,
                 "reward": reward,
                 "duration": turn_data.duration,
@@ -456,7 +460,6 @@ class ConversationOrchestrator:
 
         return turn_data
 
-    # [Rest of the methods remain the same as before...]
 
     async def run_session(self, client):
         """Run the main conversation session."""

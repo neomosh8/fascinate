@@ -603,9 +603,13 @@ class PygameConversationUI:
 
     def process_updates(self):
         """Process queued updates."""
+        updates_processed = 0
+        max_updates_per_frame = 10  # Prevent queue overflow
+
         try:
-            while True:
+            while updates_processed < max_updates_per_frame:
                 update_type, data = self.update_queue.get_nowait()
+                updates_processed += 1
 
                 if update_type == 'engagement':
                     self.engagement_widget.update(data)
@@ -623,13 +627,20 @@ class PygameConversationUI:
                     pass  # Could add countdown display
 
                 elif update_type == 'strategy_update':
-                    self.latest_strategy, self.latest_reward = data
-                    if self.show_dashboard:
+                    strategy, reward = data
+                    self.latest_strategy = strategy
+                    self.latest_reward = reward
+
+                    # Always update dashboard when we get a strategy update
+                    if self.show_dashboard and strategy is not None:
                         self.bandit_dashboard.update(
                             self.orchestrator.bandit_agent,
-                            self.latest_strategy,
-                            self.latest_reward,
+                            strategy,
+                            reward,
                         )
+                        # Log for debugging
+                        if reward is not None:
+                            print(f"Dashboard updated: {strategy.tone} with reward {reward:.3f}")
 
         except queue.Empty:
             pass

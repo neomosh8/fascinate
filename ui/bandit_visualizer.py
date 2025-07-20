@@ -50,19 +50,25 @@ class RealTimeBanditDashboard:
 
     def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
         """Update dashboard with latest data."""
-        if latest_strategy:
+        # Always update strategy if provided, regardless of reward
+        if latest_strategy is not None:
             self.current_strategy = latest_strategy
             self.highlight_strategy = latest_strategy
+            self.highlight_timer = 120  # Keep highlighted longer
 
-            if latest_reward is None:
-                # Indicate strategy is currently being spoken
-                self.current_reward = "SPEAKING..."
-                self.highlight_timer = 120
-            else:
-                self.current_reward = latest_reward
-                self.reward_history.append(latest_reward)
-                self.strategy_history.append((latest_strategy, latest_reward))
-                self.highlight_timer = 60  # Frames to highlight
+        # Handle reward separately
+        if latest_reward is None and latest_strategy is not None:
+            # Strategy selected, waiting for reward
+            self.current_reward = "SPEAKING..."
+        elif latest_reward is not None:
+            # Reward received
+            self.current_reward = latest_reward
+            self.reward_history.append(latest_reward)
+
+            # Use current strategy or the provided one
+            strategy_to_log = latest_strategy or self.current_strategy
+            if strategy_to_log:
+                self.strategy_history.append((strategy_to_log, latest_reward))
 
         self.pulse_timer += 1
         if self.highlight_timer > 0:

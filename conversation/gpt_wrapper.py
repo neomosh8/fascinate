@@ -27,9 +27,8 @@ class GPTConversation:
         # Add strategy as system message
         messages.append({
             "role": "system",
-            "content": f"""You are a conversational assistant designed to keep users engaged.
+            "content": f"""
 {strategy.to_prompt_with_memory()}
-
 Keep responses concise .
 put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""
         })
@@ -52,7 +51,7 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
             # User was silent
             messages.append({
                 "role": "user",
-                "content": "[User remained silent]"
+                "content": "[User remained silent, that's okay, continue]"
             })
 
         # Generate response
@@ -76,7 +75,7 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
                 "role": "assistant",
                 "content": response
             })
-            print("%%%%%%%%",strategy.to_prompt_with_memory())
+            print("%%%%%%%%",messages)
             return response
 
         except Exception as e:

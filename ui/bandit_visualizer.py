@@ -1,313 +1,343 @@
-"""Real-time visualization for bandit learning."""
+"""
+Simplified Real-time Bandit Visualization Dashboard
+Drop-in replacement for ui/bandit_visualizer.py
+"""
 
 import pygame
 import pygame.freetype
 import numpy as np
 import math
 from collections import deque
-from typing import Dict
+from typing import Dict, List, Tuple, Optional
 
 
-
-
-class ComponentPerformanceChart:
-    """Real-time chart showing component performance evolution."""
-
-    def __init__(self, x: int, y: int, width: int, height: int, component_name: str):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        self.component_name = component_name
-
-        self.history_length = 50
-        self.arm_histories: Dict[str, deque] = {}
-        self.confidence_histories: Dict[str, deque] = {}
-
-        self.colors = [
-            (255, 100, 100),
-            (100, 255, 100),
-            (100, 100, 255),
-            (255, 255, 100),
-            (255, 100, 255),
-            (100, 255, 255),
-            (255, 150, 100),
-            (150, 255, 100),
-            (100, 150, 255),
-        ]
-
-        self.font = pygame.freetype.Font(None, 12)
-
-    def update(self, bandit_data: Dict):
-        """Update chart with new bandit data."""
-        usage_stats = bandit_data.get("usage_stats", {})
-        confidence_intervals = bandit_data.get("confidence_intervals", {})
-
-        for arm, stats in usage_stats.items():
-            if arm not in self.arm_histories:
-                self.arm_histories[arm] = deque(maxlen=self.history_length)
-                self.confidence_histories[arm] = deque(maxlen=self.history_length)
-
-            self.arm_histories[arm].append(stats["average_reward"])
-
-            if arm in confidence_intervals:
-                low, high = confidence_intervals[arm]
-                self.confidence_histories[arm].append(high - low)
-
-    def draw(self, screen: pygame.Surface):
-        self.surface.fill((20, 25, 30, 200))
-        title_color = (200, 255, 200)
-        self.font.render_to(self.surface, (5, 5), self.component_name.upper(), title_color)
-
-        self._draw_grid()
-        self._draw_performance_lines()
-        self._draw_current_status()
-
-        screen.blit(self.surface, self.rect)
-
-    def _draw_grid(self):
-        grid_color = (40, 50, 60)
-        for i in range(5):
-            y = 30 + i * (self.rect.height - 60) // 4
-            pygame.draw.line(self.surface, grid_color, (10, y), (self.rect.width - 10, y), 1)
-        for i in range(6):
-            x = 10 + i * (self.rect.width - 20) // 5
-            pygame.draw.line(self.surface, grid_color, (x, 30), (x, self.rect.height - 30), 1)
-
-    def _draw_performance_lines(self):
-        if not self.arm_histories:
-            return
-
-        chart_area = pygame.Rect(10, 30, self.rect.width - 20, self.rect.height - 60)
-        for i, (arm, history) in enumerate(self.arm_histories.items()):
-            if len(history) < 2:
-                continue
-            color = self.colors[i % len(self.colors)]
-            points = []
-            for j, value in enumerate(history):
-                x = chart_area.left + (j / max(1, len(history) - 1)) * chart_area.width
-                y = chart_area.bottom - (value * chart_area.height)
-                points.append((x, y))
-            if len(points) > 1:
-                pygame.draw.lines(self.surface, color, False, points, 2)
-                label_x = points[-1][0] + 5
-                label_y = points[-1][1] - 10
-                if label_x < self.rect.width - 50:
-                    self.font.render_to(self.surface, (label_x, label_y), arm[:4], color)
-
-    def _draw_current_status(self):
-        if not self.arm_histories:
-            return
-        current_scores = {arm: hist[-1] for arm, hist in self.arm_histories.items() if hist}
-        if not current_scores:
-            return
-        best_arm = max(current_scores, key=current_scores.get)
-        worst_arm = min(current_scores, key=current_scores.get)
-        y_pos = self.rect.height - 25
-        self.font.render_to(self.surface, (10, y_pos), f"↑ {best_arm}", (100, 255, 100))
-        self.font.render_to(self.surface, (self.rect.width - 80, y_pos), f"↓ {worst_arm}", (255, 100, 100))
-
-
-class ConvergenceRadarChart:
-    """Radar chart showing overall convergence state."""
-
-    def __init__(self, x: int, y: int, radius: int):
-        self.center_x = x
-        self.center_y = y
-        self.radius = radius
-        self.components = ["tone", "topic", "emotion", "hook"]
-        self.font = pygame.freetype.Font(None, 14)
-
-    def draw(self, screen: pygame.Surface, bandit_agent):
-        scores = self._calculate_convergence_scores(bandit_agent)
-        self._draw_radar_grid(screen)
-        self._draw_convergence_polygon(screen, scores)
-        self._draw_labels(screen, scores)
-
-    def _calculate_convergence_scores(self, bandit_agent) -> Dict[str, float]:
-        scores = {}
-        if hasattr(bandit_agent, 'bandits'):
-            for name, bandit in bandit_agent.bandits.items():
-                intervals = bandit.get_confidence_intervals()
-                if intervals:
-                    avg_width = np.mean([hi - lo for lo, hi in intervals.values()])
-                    scores[name] = max(0, 1 - avg_width)
-                else:
-                    scores[name] = 0.0
-        else:
-            utilization = getattr(bandit_agent, 'get_performance_summary', lambda: {})()
-            value = utilization.get('context_utilization', 0) / max(1, utilization.get('total_selections', 1))
-            value = np.clip(value, 0.0, 1.0)
-            for comp in self.components:
-                scores[comp] = value
-        return scores
-
-    def _draw_radar_grid(self, screen: pygame.Surface):
-        for i in range(1, 6):
-            radius = int((i / 5) * self.radius)
-            pygame.draw.circle(screen, (50, 60, 70), (self.center_x, self.center_y), radius, 1)
-        for i, _ in enumerate(self.components):
-            angle = i * 2 * math.pi / len(self.components) - math.pi / 2
-            end_x = self.center_x + self.radius * math.cos(angle)
-            end_y = self.center_y + self.radius * math.sin(angle)
-            pygame.draw.line(screen, (70, 80, 90), (self.center_x, self.center_y), (end_x, end_y), 1)
-
-    def _draw_convergence_polygon(self, screen: pygame.Surface, scores: Dict[str, float]):
-        points = []
-        for i, comp in enumerate(self.components):
-            score = scores.get(comp, 0)
-            angle = i * 2 * math.pi / len(self.components) - math.pi / 2
-            dist = score * self.radius
-            x = self.center_x + dist * math.cos(angle)
-            y = self.center_y + dist * math.sin(angle)
-            points.append((x, y))
-        if len(points) > 2:
-            pygame.draw.polygon(screen, (100, 150, 255, 100), points)
-            pygame.draw.polygon(screen, (150, 200, 255), points, 2)
-
-    def _draw_labels(self, screen: pygame.Surface, scores: Dict[str, float]):
-        for i, comp in enumerate(self.components):
-            score = scores.get(comp, 0)
-            angle = i * 2 * math.pi / len(self.components) - math.pi / 2
-            dist = self.radius + 20
-            x = self.center_x + dist * math.cos(angle)
-            y = self.center_y + dist * math.sin(angle)
-            if score > 0.7:
-                color = (100, 255, 100)
-            elif score > 0.4:
-                color = (255, 255, 100)
-            else:
-                color = (255, 100, 100)
-            text = f"{comp}\n{score:.2f}"
-            self.font.render_to(screen, (x - 25, y - 10), text, color)
-
-
-class StrategyHeatmap:
-    """Heatmap showing strategy combination performance."""
-
-    def __init__(self, x: int, y: int, width: int, height: int):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        self.font = pygame.freetype.Font(None, 10)
-        self.strategy_performance: Dict[str, list] = {}
-        self.max_combinations = 20
-
-    def update(self, strategy, reward: float):
-        key = f"{strategy.tone[:3]}/{strategy.topic[:3]}/{strategy.emotion[:3]}"
-        self.strategy_performance.setdefault(key, []).append(reward)
-        if len(self.strategy_performance[key]) > 10:
-            self.strategy_performance[key] = self.strategy_performance[key][-10:]
-
-    def draw(self, screen: pygame.Surface):
-        self.surface.fill((15, 20, 25, 200))
-        self.font.render_to(self.surface, (5, 5), "STRATEGY COMBINATIONS", (200, 255, 200))
-        if not self.strategy_performance:
-            screen.blit(self.surface, self.rect)
-            return
-        sorted_strats = sorted(self.strategy_performance.items(), key=lambda x: np.mean(x[1]), reverse=True)
-        y_offset = 25
-        cell_h = 15
-        for i, (key, rewards) in enumerate(sorted_strats[: self.max_combinations]):
-            if y_offset + cell_h > self.rect.height - 10:
-                break
-            avg_reward = float(np.mean(rewards))
-            usage = len(rewards)
-            if avg_reward > 0.6:
-                color = (100, 255, 100)
-            elif avg_reward > 0.3:
-                color = (255, 255, 100)
-            else:
-                color = (255, 100, 100)
-            bar_w = int((avg_reward + 1) / 2 * (self.rect.width - 100))
-            pygame.draw.rect(self.surface, color, (50, y_offset, bar_w, cell_h - 2))
-            self.font.render_to(self.surface, (5, y_offset + 2), f"{key} ({usage})", (255, 255, 255))
-            self.font.render_to(self.surface, (self.rect.width - 40, y_offset + 2), f"{avg_reward:.2f}", color)
-            y_offset += cell_h
-        screen.blit(self.surface, self.rect)
-
-
-class RestartIndicator:
-    """Visual indicator for adaptive restarts."""
-
-    def __init__(self, x: int, y: int, width: int, height: int):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
-        self.font = pygame.freetype.Font(None, 12)
-        self.restart_history = deque(maxlen=10)
-        self.flash_timer = 0
-
-    def add_restart(self, restart_type: str, step: int):
-        self.restart_history.append((restart_type, step))
-        self.flash_timer = 30
-
-    def update(self):
-        if self.flash_timer > 0:
-            self.flash_timer -= 1
-
-    def draw(self, screen: pygame.Surface):
-        self.surface.fill((30, 30, 40, 200))
-        title_color = (255, 200, 100) if self.flash_timer > 0 else (200, 200, 200)
-        self.font.render_to(self.surface, (5, 5), "RESTARTS", title_color)
-        if self.flash_timer > 0:
-            alpha = int(255 * (self.flash_timer / 30))
-            flash = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
-            flash.fill((255, 255, 0, alpha))
-            self.surface.blit(flash, (0, 0))
-        y = 25
-        for rtype, step in list(self.restart_history)[-5:]:
-            self.font.render_to(self.surface, (5, y), f"Step {step}: {rtype}", (255, 200, 100))
-            y += 15
-        screen.blit(self.surface, self.rect)
-
-
-class BanditVisualizationDashboard:
-    """Main dashboard combining all visualizations."""
+class RealTimeBanditDashboard:
+    """Simplified comprehensive real-time bandit visualization."""
 
     def __init__(self, screen_width: int, screen_height: int):
         self.screen_width = screen_width
         self.screen_height = screen_height
-        chart_w = 200
-        chart_h = 120
-        margin = 10
-        self.tone_chart = ComponentPerformanceChart(margin, margin, chart_w, chart_h, "tone")
-        self.topic_chart = ComponentPerformanceChart(margin + chart_w + margin, margin, chart_w, chart_h, "topic")
-        self.emotion_chart = ComponentPerformanceChart(margin, margin + chart_h + margin, chart_w, chart_h, "emotion")
-        self.hook_chart = ComponentPerformanceChart(margin + chart_w + margin, margin + chart_h + margin, chart_w, chart_h, "hook")
-        radar_x = screen_width - 150
-        radar_y = 150
-        self.convergence_radar = ConvergenceRadarChart(radar_x, radar_y, 80)
-        heatmap_y = margin + 2 * (chart_h + margin) + margin
-        self.strategy_heatmap = StrategyHeatmap(margin, heatmap_y, chart_w * 2 + margin, 200)
-        self.restart_indicator = RestartIndicator(screen_width - 200, margin, 180, 100)
-        self.font = pygame.freetype.Font(None, 16)
-        self._last_known_restart_step = 0
+
+        # Colors
+        self.bg_color = (15, 20, 25, 220)  # Semi-transparent dark
+        self.text_color = (200, 255, 200)
+        self.accent_color = (100, 255, 150)
+        self.warning_color = (255, 150, 100)
+        self.good_color = (100, 255, 100)
+        self.bad_color = (255, 100, 100)
+
+        # Fonts
+        self.font_title = pygame.freetype.Font(None, 20)
+        self.font_large = pygame.freetype.Font(None, 16)
+        self.font_medium = pygame.freetype.Font(None, 14)
+        self.font_small = pygame.freetype.Font(None, 12)
+
+        # Layout
+        self.margin = 20
+        self.panel_spacing = 15
+
+        # Data tracking
+        self.reward_history = deque(maxlen=50)
+        self.strategy_history = deque(maxlen=20)
+        self.current_strategy = None
+        self.current_reward = None
+        self.last_update_time = 0
+
+        # Animation
+        self.pulse_timer = 0
+        self.highlight_strategy = None
+        self.highlight_timer = 0
 
     def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
-        summary = bandit_agent.get_performance_summary()
-        components = summary.get("components", {})
-        if components:
-            self.tone_chart.update(components.get("tone", {}))
-            self.topic_chart.update(components.get("topic", {}))
-            self.emotion_chart.update(components.get("emotion", {}))
-            self.hook_chart.update(components.get("hook", {}))
-        if latest_strategy is not None and latest_reward is not None:
-            self.strategy_heatmap.update(latest_strategy, latest_reward)
-        self.restart_indicator.update()
-        last_restart = summary.get("restart_stats", {}).get("last_restart_step", 0)
-        if last_restart > self._last_known_restart_step:
-            self.restart_indicator.add_restart("adaptive", last_restart)
-        self._last_known_restart_step = last_restart
+        """Update dashboard with latest data."""
+        if latest_strategy and latest_reward is not None:
+            self.current_strategy = latest_strategy
+            self.current_reward = latest_reward
+            self.reward_history.append(latest_reward)
+            self.strategy_history.append((latest_strategy, latest_reward))
+            self.highlight_strategy = latest_strategy
+            self.highlight_timer = 60  # Frames to highlight
+
+        self.pulse_timer += 1
+        if self.highlight_timer > 0:
+            self.highlight_timer -= 1
 
     def draw(self, screen: pygame.Surface, bandit_agent):
+        """Draw the complete dashboard."""
+        # Create semi-transparent overlay
         overlay = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 50))
+        overlay.fill(self.bg_color)
         screen.blit(overlay, (0, 0))
-        self.font.render_to(screen, (10, self.screen_height - 30), "BANDIT LEARNING DASHBOARD", (200, 255, 200))
-        self.tone_chart.draw(screen)
-        self.topic_chart.draw(screen)
-        self.emotion_chart.draw(screen)
-        self.hook_chart.draw(screen)
-        self.convergence_radar.draw(screen, bandit_agent)
-        self.strategy_heatmap.draw(screen)
-        self.restart_indicator.draw(screen)
-        status_y = self.screen_height - 60
-        self.font.render_to(screen, (10, status_y), "Status: Learning component preferences...", (255, 255, 100))
 
+        # Calculate layout
+        panel_width = (self.screen_width - 4 * self.margin) // 3
+        panel_height = (self.screen_height - 4 * self.margin) // 2
+
+        # Draw panels
+        self._draw_current_strategy_panel(screen, self.margin, self.margin, panel_width, panel_height)
+        self._draw_component_performance_panel(screen, self.margin * 2 + panel_width, self.margin, panel_width, panel_height, bandit_agent)
+        self._draw_learning_progress_panel(screen, self.margin * 3 + panel_width * 2, self.margin, panel_width, panel_height)
+
+        self._draw_strategy_timeline_panel(screen, self.margin, self.margin * 2 + panel_height, panel_width * 2 + self.margin, panel_height)
+        self._draw_context_panel(screen, self.margin * 3 + panel_width * 2, self.margin * 2 + panel_height, panel_width, panel_height, bandit_agent)
+
+    def _draw_panel_background(self, screen: pygame.Surface, x: int, y: int, width: int, height: int, title: str):
+        """Draw panel background with title."""
+        # Panel background
+        panel_rect = pygame.Rect(x, y, width, height)
+        pygame.draw.rect(screen, (25, 35, 45, 180), panel_rect, border_radius=8)
+        pygame.draw.rect(screen, self.accent_color, panel_rect, width=2, border_radius=8)
+
+        # Title
+        self.font_title.render_to(screen, (x + 10, y + 8), title, self.accent_color)
+        return y + 35  # Return content start Y
+
+    def _draw_current_strategy_panel(self, screen: pygame.Surface, x: int, y: int, width: int, height: int):
+        """Draw current strategy selection panel."""
+        content_y = self._draw_panel_background(screen, x, y, width, height, "CURRENT STRATEGY")
+
+        if not self.current_strategy:
+            self.font_medium.render_to(screen, (x + 15, content_y + 20), "No strategy selected yet", self.text_color)
+            return
+
+        # Strategy components with visual emphasis
+        components = [
+            ("TONE", self.current_strategy.tone),
+            ("TOPIC", self.current_strategy.topic),
+            ("EMOTION", self.current_strategy.emotion),
+            ("HOOK", self.current_strategy.hook)
+        ]
+
+        comp_y = content_y + 10
+        for i, (label, value) in enumerate(components):
+            # Pulsing highlight effect
+            pulse = math.sin(self.pulse_timer * 0.1) * 0.3 + 0.7
+            highlight_alpha = int(255 * pulse) if self.highlight_timer > 0 else 100
+
+            # Component background
+            comp_rect = pygame.Rect(x + 10, comp_y, width - 20, 25)
+            highlight_surf = pygame.Surface((width - 20, 25), pygame.SRCALPHA)
+            highlight_surf.fill((100, 200, 255, highlight_alpha // 4))
+            screen.blit(highlight_surf, (x + 10, comp_y))
+
+            # Component text
+            self.font_small.render_to(screen, (x + 15, comp_y + 2), label, (150, 150, 150))
+
+            # Value with color coding
+            color = self.good_color if self.current_reward and self.current_reward > 0.5 else self.text_color
+            self.font_medium.render_to(screen, (x + 15, comp_y + 12), value, color)
+
+            comp_y += 30
+
+        # Current reward
+        if self.current_reward is not None:
+            reward_y = comp_y + 10
+            reward_color = self.good_color if self.current_reward > 0 else self.bad_color
+            self.font_large.render_to(screen, (x + 15, reward_y), f"REWARD: {self.current_reward:.3f}", reward_color)
+
+    def _draw_component_performance_panel(self, screen: pygame.Surface, x: int, y: int, width: int, height: int, bandit_agent):
+        """Draw component performance with real-time bars."""
+        content_y = self._draw_panel_background(screen, x, y, width, height, "COMPONENT PERFORMANCE")
+
+        try:
+            summary = bandit_agent.get_performance_summary()
+            components = summary.get('components', {})
+
+            comp_y = content_y + 5
+            bar_width = width - 40
+
+            for comp_name in ['tone', 'topic', 'emotion', 'hook']:
+                if comp_name not in components:
+                    continue
+
+                comp_data = components[comp_name]
+                best_choice = comp_data.get('best_choice', 'unknown')
+                best_score = comp_data.get('best_score', 0)
+
+                # Component name
+                self.font_medium.render_to(screen, (x + 15, comp_y), comp_name.upper(), self.text_color)
+
+                # Performance bar
+                bar_height = 8
+                bar_y = comp_y + 18
+                bar_rect = pygame.Rect(x + 15, bar_y, bar_width, bar_height)
+
+                # Background
+                pygame.draw.rect(screen, (50, 50, 50), bar_rect, border_radius=4)
+
+                # Performance fill
+                fill_width = int(bar_width * max(0, min(1, (best_score + 1) / 2)))  # Normalize -1 to 1 -> 0 to 1
+                if fill_width > 0:
+                    fill_color = self.good_color if best_score > 0.3 else self.warning_color if best_score > 0 else self.bad_color
+                    fill_rect = pygame.Rect(x + 15, bar_y, fill_width, bar_height)
+                    pygame.draw.rect(screen, fill_color, fill_rect, border_radius=4)
+
+                # Best choice text
+                choice_text = f"{best_choice} ({best_score:.2f})"
+                self.font_small.render_to(screen, (x + 20, bar_y + 12), choice_text, self.text_color)
+
+                comp_y += 45
+
+        except Exception as e:
+            self.font_small.render_to(screen, (x + 15, content_y + 20), f"Error: {str(e)[:30]}...", self.bad_color)
+
+    def _draw_learning_progress_panel(self, screen: pygame.Surface, x: int, y: int, width: int, height: int):
+        """Draw learning progress and statistics."""
+        content_y = self._draw_panel_background(screen, x, y, width, height, "LEARNING PROGRESS")
+
+        # Reward history graph
+        if len(self.reward_history) > 1:
+            graph_height = 80
+            graph_y = content_y + 10
+
+            # Graph background
+            graph_rect = pygame.Rect(x + 15, graph_y, width - 30, graph_height)
+            pygame.draw.rect(screen, (30, 30, 30, 100), graph_rect, border_radius=4)
+
+            # Zero line
+            zero_y = graph_y + graph_height // 2
+            pygame.draw.line(screen, (100, 100, 100), (x + 15, zero_y), (x + width - 15, zero_y), 1)
+
+            # Plot reward history
+            if len(self.reward_history) > 1:
+                points = []
+                for i, reward in enumerate(self.reward_history):
+                    px = x + 15 + (i / max(1, len(self.reward_history) - 1)) * (width - 30)
+                    py = zero_y - (reward * graph_height // 4)  # Scale to half graph height
+                    py = max(graph_y, min(graph_y + graph_height, py))
+                    points.append((px, py))
+
+                if len(points) > 1:
+                    pygame.draw.lines(screen, self.good_color, False, points, 2)
+
+            # Statistics
+            stats_y = graph_y + graph_height + 15
+            recent_avg = np.mean(list(self.reward_history)[-10:]) if self.reward_history else 0
+            total_trials = len(self.reward_history)
+
+            self.font_small.render_to(screen, (x + 15, stats_y), f"Recent Avg: {recent_avg:.3f}", self.text_color)
+            self.font_small.render_to(screen, (x + 15, stats_y + 15), f"Total Trials: {total_trials}", self.text_color)
+
+            # Learning trend
+            if len(self.reward_history) > 10:
+                early_avg = np.mean(list(self.reward_history)[:5])
+                trend = recent_avg - early_avg
+                trend_color = self.good_color if trend > 0 else self.bad_color
+                trend_text = f"Trend: {'↗' if trend > 0 else '↘'} {trend:+.3f}"
+                self.font_small.render_to(screen, (x + 15, stats_y + 30), trend_text, trend_color)
+
+    def _draw_strategy_timeline_panel(self, screen: pygame.Surface, x: int, y: int, width: int, height: int):
+        """Draw recent strategy timeline."""
+        content_y = self._draw_panel_background(screen, x, y, width, height, "STRATEGY TIMELINE")
+
+        if not self.strategy_history:
+            self.font_medium.render_to(screen, (x + 15, content_y + 20), "No strategies tried yet", self.text_color)
+            return
+
+        # Timeline visualization
+        timeline_y = content_y + 10
+        item_height = 25
+        visible_items = min(6, len(self.strategy_history))
+
+        for i, (strategy, reward) in enumerate(list(self.strategy_history)[-visible_items:]):
+            item_y = timeline_y + i * item_height
+
+            # Strategy summary
+            strategy_text = f"{strategy.tone[:8]}/{strategy.topic[:8]}/{strategy.emotion[:6]}"
+
+            # Reward indicator
+            reward_color = self.good_color if reward > 0.3 else self.warning_color if reward > 0 else self.bad_color
+            indicator_size = 8
+            pygame.draw.circle(screen, reward_color, (x + 15, item_y + 10), indicator_size)
+
+            # Strategy text
+            text_x = x + 30
+            self.font_small.render_to(screen, (text_x, item_y + 2), strategy_text, self.text_color)
+
+            # Reward value
+            reward_text = f"{reward:+.2f}"
+            self.font_small.render_to(screen, (text_x, item_y + 13), reward_text, reward_color)
+
+            # Success rate bar (mini)
+            bar_x = x + width - 80
+            bar_width = 60
+            bar_height = 4
+            bar_rect = pygame.Rect(bar_x, item_y + 8, bar_width, bar_height)
+            pygame.draw.rect(screen, (50, 50, 50), bar_rect)
+
+            if reward > -1:  # Valid reward range
+                fill_width = int(bar_width * (reward + 1) / 2)
+                if fill_width > 0:
+                    fill_rect = pygame.Rect(bar_x, item_y + 8, fill_width, bar_height)
+                    pygame.draw.rect(screen, reward_color, fill_rect)
+
+    def _draw_context_panel(self, screen: pygame.Surface, x: int, y: int, width: int, height: int, bandit_agent):
+        """Draw context awareness and exploration stats."""
+        content_y = self._draw_panel_background(screen, x, y, width, height, "CONTEXT & EXPLORATION")
+
+        try:
+            summary = bandit_agent.get_performance_summary()
+
+            stats_y = content_y + 10
+            line_height = 18
+
+            # Context utilization
+            context_util = summary.get('context_utilization', 0)
+            self.font_small.render_to(screen, (x + 15, stats_y), f"Context Window: {context_util}/5", self.text_color)
+            stats_y += line_height
+
+            # Strategies explored
+            strategies_tried = summary.get('strategies_tried', 0)
+            total_selections = summary.get('total_selections', 0)
+            self.font_small.render_to(screen, (x + 15, stats_y), f"Strategies Tried: {strategies_tried}", self.text_color)
+            stats_y += line_height
+
+            self.font_small.render_to(screen, (x + 15, stats_y), f"Total Selections: {total_selections}", self.text_color)
+            stats_y += line_height * 2
+
+            # Exploration vs Exploitation indicator
+            if total_selections > 0:
+                exploration_rate = min(1.0, strategies_tried / max(1, total_selections * 0.1))
+
+                # Exploration bar
+                bar_width = width - 40
+                bar_height = 10
+                bar_rect = pygame.Rect(x + 15, stats_y, bar_width, bar_height)
+                pygame.draw.rect(screen, (40, 40, 40), bar_rect, border_radius=5)
+
+                fill_width = int(bar_width * exploration_rate)
+                if fill_width > 0:
+                    fill_color = self.good_color if 0.3 < exploration_rate < 0.7 else self.warning_color
+                    fill_rect = pygame.Rect(x + 15, stats_y, fill_width, bar_height)
+                    pygame.draw.rect(screen, fill_color, fill_rect, border_radius=5)
+
+                self.font_small.render_to(screen, (x + 15, stats_y - 15), "Exploration Balance", self.text_color)
+
+                # Balance text
+                balance_text = "Good" if 0.3 < exploration_rate < 0.7 else "Low" if exploration_rate < 0.3 else "High"
+                self.font_small.render_to(screen, (x + 15, stats_y + 15), f"Status: {balance_text}", self.text_color)
+
+        except Exception as e:
+            self.font_small.render_to(screen, (x + 15, content_y + 20), f"Context Error: {str(e)[:25]}...", self.bad_color)
+
+
+class BanditVisualizationDashboard:
+    """Main dashboard - drop-in replacement for the complex version."""
+
+    def __init__(self, screen_width: int, screen_height: int):
+        self.dashboard = RealTimeBanditDashboard(screen_width, screen_height)
+
+    def update(self, bandit_agent, latest_strategy=None, latest_reward=None):
+        """Update dashboard with latest bandit data."""
+        self.dashboard.update(bandit_agent, latest_strategy, latest_reward)
+
+    def draw(self, screen: pygame.Surface, bandit_agent):
+        """Draw the dashboard."""
+        self.dashboard.draw(screen, bandit_agent)
+
+
+# Backwards compatibility for any remaining component references
+ComponentPerformanceChart = None
+ConvergenceRadarChart = None
+StrategyHeatmap = None
+RestartIndicator = None

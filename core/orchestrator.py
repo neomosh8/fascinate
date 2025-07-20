@@ -327,7 +327,7 @@ class ConversationOrchestrator:
             return time.time(), time.time(), []
 
     async def process_turn(self, audio_data: bytes) -> TurnData:
-        """Process a single conversation turn with proper engagement tracking."""
+        """Process a single conversation turn with proper UI timing."""
         # Cancel any auto-advance timer
         self.cancel_auto_advance_timer()
 
@@ -355,13 +355,13 @@ class ConversationOrchestrator:
         # 3. Bandit agent selects strategy
         strategy = self.bandit_agent.select_strategy()
 
+        # 🚨 CRITICAL: Update UI with "PREPARING" state
+        if "update_strategy" in self.ui_callbacks:
+            self.ui_callbacks["update_strategy"]((strategy, "PREPARING"))
+
         self.logger.info(
             f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
         )
-
-        # Update UI immediately to show selected strategy before TTS
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, None))
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
@@ -370,16 +370,18 @@ class ConversationOrchestrator:
         if "update_transcript" in self.ui_callbacks:
             self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
 
+        # 🚨 CRITICAL: Update UI with "SPEAKING" state just before TTS
+        if "update_strategy" in self.ui_callbacks:
+            self.ui_callbacks["update_strategy"]((strategy, "SPEAKING"))
+
         # 5. Speak response with proper engagement tracking
         self.logger.info("Speaking response with engagement tracking...")
-        tts_start, tts_end, engagement_during_tts = (
-            await self._speak_with_engagement_tracking(assistant_text, strategy)
+        tts_start, tts_end, engagement_during_tts = await self._speak_with_engagement_tracking(
+            assistant_text, strategy
         )
 
         # 6. Calculate reward using proper TTS engagement data
-        session_duration = time.time() - getattr(
-            self, "session_start_time", time.time()
-        )
+        session_duration = time.time() - getattr(self, "session_start_time", time.time())
         reward = self._calculate_adaptive_reward(
             engagement_before,
             engagement_during_tts,
@@ -401,7 +403,7 @@ class ConversationOrchestrator:
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
 
-        # 7. Update bandit agent
+        # 7. Update bandit agent FIRST
         self.bandit_agent.update(strategy, context_vector, reward)
 
         # Add turn to context history
@@ -409,7 +411,7 @@ class ConversationOrchestrator:
             user_text, assistant_text, strategy, engagement_after
         )
 
-        # Send update to UI for visualization
+        # 🚨 CRITICAL: Final UI update with actual reward (after bandit update)
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, reward))
 
@@ -417,7 +419,8 @@ class ConversationOrchestrator:
         self.last_engagement = engagement_after
         self.turn_count += 1
 
-        # Start auto-advance timer
+        # 🚨 CRITICAL: Wait a moment before starting auto-advance
+        await asyncio.sleep(0.5)
         self.start_auto_advance_timer()
 
         # Create turn data
@@ -446,7 +449,6 @@ class ConversationOrchestrator:
                 "tts_analysis": self._calculate_tts_engagement_score(
                     engagement_during_tts, tts_end - tts_start
                 ),
-                # ADD THIS LINE
                 "engagement_after": engagement_after,
                 "reward": reward,
                 "duration": turn_data.duration,

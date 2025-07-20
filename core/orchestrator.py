@@ -45,6 +45,9 @@ class ConversationOrchestrator:
         self.engagement_scorer = EngagementScorer()
         self.event_loop = None
 
+        # Ensure turns are processed sequentially
+        self.turn_lock = asyncio.Lock()
+
         # Initialize Contextual Bandit agent
         self.bandit_agent = ContextualBanditAgent(context_window_size=5)
 
@@ -83,6 +86,14 @@ class ConversationOrchestrator:
 
         # Set EEG data callback
         self.eeg_manager.data_callback = self._on_eeg_data
+
+    def interrupt_current_turn(self):
+        """Interrupt any ongoing TTS and cancel timers."""
+        try:
+            self.tts.stop()
+        except Exception:
+            pass
+        self.cancel_auto_advance_timer()
 
     def _on_eeg_data(self, ch1_samples, ch2_samples):
         """Process incoming EEG data and track TTS engagement."""
@@ -308,130 +319,131 @@ class ConversationOrchestrator:
 
     async def process_turn(self, audio_data: bytes) -> TurnData:
         """Process a single conversation turn with proper engagement tracking."""
-        # Cancel any auto-advance timer
-        self.cancel_auto_advance_timer()
+        async with self.turn_lock:
+            # Cancel any auto-advance timer
+            self.cancel_auto_advance_timer()
 
-        turn_start = time.time()
+            turn_start = time.time()
 
-        # 1. Transcribe user speech
-        if audio_data:
-            self.logger.info("Transcribing user speech...")
-            user_text = await self.stt.transcribe(audio_data)
-        else:
-            user_text = ""
-        user_spoke = len(user_text.strip()) > 0
+            # 1. Transcribe user speech
+            if audio_data:
+                self.logger.info("Transcribing user speech...")
+                user_text = await self.stt.transcribe(audio_data)
+            else:
+                user_text = ""
+            user_spoke = len(user_text.strip()) > 0
 
-        if "update_transcript" in self.ui_callbacks:
-            self.ui_callbacks["update_transcript"](
-                f"User: {user_text if user_spoke else '[Silent]'}"
+            if "update_transcript" in self.ui_callbacks:
+                self.ui_callbacks["update_transcript"](
+                    f"User: {user_text if user_spoke else '[Silent]'}"
+                )
+
+            # 2. Get current engagement (before response)
+            engagement_before = self.engagement_scorer.current_engagement
+
+            # Build context vector before selecting strategy
+            context_vector = self.bandit_agent._build_context_vector()
+
+            # 3. Bandit agent selects strategy
+            strategy = self.bandit_agent.select_strategy()
+
+            self.logger.info(
+                f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
             )
 
-        # 2. Get current engagement (before response)
-        engagement_before = self.engagement_scorer.current_engagement
+            # Update UI immediately to show selected strategy before TTS
+            if "update_strategy" in self.ui_callbacks:
+                self.ui_callbacks["update_strategy"]((strategy, None))
 
-        # Build context vector before selecting strategy
-        context_vector = self.bandit_agent._build_context_vector()
+            # 4. Generate GPT response
+            self.logger.info("Generating response...")
+            assistant_text = await self.gpt.generate_response(user_text, strategy)
 
-        # 3. Bandit agent selects strategy
-        strategy = self.bandit_agent.select_strategy()
+            if "update_transcript" in self.ui_callbacks:
+                self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
 
-        self.logger.info(
-            f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
-        )
+            # 5. Speak response with proper engagement tracking
+            self.logger.info("Speaking response with engagement tracking...")
+            tts_start, tts_end, engagement_during_tts = (
+                await self._speak_with_engagement_tracking(assistant_text, strategy)
+            )
 
-        # Update UI immediately to show selected strategy before TTS
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, None))
+            # 6. Calculate reward using proper TTS engagement data
+            session_duration = time.time() - getattr(
+                self, "session_start_time", time.time()
+            )
+            reward = self._calculate_adaptive_reward(
+                engagement_before,
+                engagement_during_tts,
+                tts_end - tts_start,
+                user_spoke,
+                session_duration,
+            )
 
-        # 4. Generate GPT response
-        self.logger.info("Generating response...")
-        assistant_text = await self.gpt.generate_response(user_text, strategy)
+            # Calculate final engagement for logging
+            engagement_after = (
+                np.mean(engagement_during_tts)
+                if engagement_during_tts
+                else self.engagement_scorer.current_engagement
+            )
 
-        if "update_transcript" in self.ui_callbacks:
-            self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
+            # Let strategy learn from this example
+            strategy.add_example(assistant_text, engagement_after - engagement_before)
 
-        # 5. Speak response with proper engagement tracking
-        self.logger.info("Speaking response with engagement tracking...")
-        tts_start, tts_end, engagement_during_tts = (
-            await self._speak_with_engagement_tracking(assistant_text, strategy)
-        )
+            # 7. Update bandit agent
+            self.bandit_agent.update(strategy, context_vector, reward)
 
-        # 6. Calculate reward using proper TTS engagement data
-        session_duration = time.time() - getattr(
-            self, "session_start_time", time.time()
-        )
-        reward = self._calculate_adaptive_reward(
-            engagement_before,
-            engagement_during_tts,
-            tts_end - tts_start,
-            user_spoke,
-            session_duration,
-        )
+            # Add turn to context history
+            self.bandit_agent.context.add_turn(
+                user_text, assistant_text, strategy, engagement_after
+            )
 
-        # Calculate final engagement for logging
-        engagement_after = (
-            np.mean(engagement_during_tts)
-            if engagement_during_tts
-            else self.engagement_scorer.current_engagement
-        )
+            # Send update to UI for visualization
+            if "update_strategy" in self.ui_callbacks:
+                self.ui_callbacks["update_strategy"]((strategy, reward))
 
-        # Let strategy learn from this example
-        strategy.add_example(assistant_text, engagement_after - engagement_before)
+            # Update state
+            self.last_engagement = engagement_after
+            self.turn_count += 1
 
-        # 7. Update bandit agent
-        self.bandit_agent.update(strategy, context_vector, reward)
+            # Start auto-advance timer
+            self.start_auto_advance_timer()
 
-        # Add turn to context history
-        self.bandit_agent.context.add_turn(
-            user_text, assistant_text, strategy, engagement_after
-        )
+            # Create turn data
+            turn_data = TurnData(
+                user_text=user_text,
+                user_spoke=user_spoke,
+                strategy=strategy,
+                assistant_text=assistant_text,
+                engagement_before=engagement_before,
+                engagement_during_tts=engagement_during_tts,
+                engagement_after=engagement_after,
+                reward=reward,
+                duration=time.time() - turn_start,
+            )
 
-        # Send update to UI for visualization
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, reward))
+            # Enhanced logging
+            self.logger.log_turn(
+                {
+                    "turn": self.turn_count,
+                    "user_text": user_text,
+                    "user_spoke": user_spoke,
+                    "strategy": strategy.to_prompt(),
+                    "assistant_text": assistant_text,
+                    "engagement_before": engagement_before,
+                    "engagement_during_tts_samples": len(engagement_during_tts),
+                    "tts_analysis": self._calculate_tts_engagement_score(
+                        engagement_during_tts, tts_end - tts_start
+                    ),
+                    # ADD THIS LINE
+                    "engagement_after": engagement_after,
+                    "reward": reward,
+                    "duration": turn_data.duration,
+                    "tts_duration": tts_end - tts_start,
+                }
+            )
 
-        # Update state
-        self.last_engagement = engagement_after
-        self.turn_count += 1
-
-        # Start auto-advance timer
-        self.start_auto_advance_timer()
-
-        # Create turn data
-        turn_data = TurnData(
-            user_text=user_text,
-            user_spoke=user_spoke,
-            strategy=strategy,
-            assistant_text=assistant_text,
-            engagement_before=engagement_before,
-            engagement_during_tts=engagement_during_tts,
-            engagement_after=engagement_after,
-            reward=reward,
-            duration=time.time() - turn_start,
-        )
-
-        # Enhanced logging
-        self.logger.log_turn(
-            {
-                "turn": self.turn_count,
-                "user_text": user_text,
-                "user_spoke": user_spoke,
-                "strategy": strategy.to_prompt(),
-                "assistant_text": assistant_text,
-                "engagement_before": engagement_before,
-                "engagement_during_tts_samples": len(engagement_during_tts),
-                "tts_analysis": self._calculate_tts_engagement_score(
-                    engagement_during_tts, tts_end - tts_start
-                ),
-                # ADD THIS LINE
-                "engagement_after": engagement_after,
-                "reward": reward,
-                "duration": turn_data.duration,
-                "tts_duration": tts_end - tts_start,
-            }
-        )
-
-        return turn_data
+            return turn_data
 
     # [Rest of the methods remain the same as before...]
 

@@ -18,7 +18,8 @@ from config import WINDOW_WIDTH, WINDOW_HEIGHT
 from core.orchestrator import ConversationOrchestrator
 from ui.bandit_visualizer import BanditVisualizationDashboard
 
-FONT_PATH = "DejaVuSans.ttf"      # relative path to the TTF you downloaded
+FONT_PATH = "DejaVuSans.ttf"  # relative path to the TTF you downloaded
+
 
 class EngagementWidget:
     """Apple Watch style ECG engagement display."""
@@ -92,7 +93,14 @@ class EngagementWidget:
 class FadingText:
     """Text with fade in/out effects."""
 
-    def __init__(self, text: str, font: pygame.freetype.Font, color: Tuple[int, int, int], x: int, y: int):
+    def __init__(
+        self,
+        text: str,
+        font: pygame.freetype.Font,
+        color: Tuple[int, int, int],
+        x: int,
+        y: int,
+    ):
         self.text = text
         self.font = font
         self.color = color
@@ -143,7 +151,9 @@ class FadingText:
 class SphereVisualization:
     """3D sphere visualization with trending words."""
 
-    def __init__(self, center_x: int, center_y: int, grid_cols: int = 60, grid_rows: int = 30):
+    def __init__(
+        self, center_x: int, center_y: int, grid_cols: int = 60, grid_rows: int = 30
+    ):
         self.center_x = center_x
         self.center_y = center_y
         self.grid_cols = grid_cols
@@ -154,7 +164,7 @@ class SphereVisualization:
         self.font = pygame.freetype.Font(FONT_PATH, self.font_size)
 
         # Get character dimensions
-        char_surface, char_rect = self.font.render('@', (255, 255, 255))
+        char_surface, char_rect = self.font.render("@", (255, 255, 255))
         self.char_width = char_rect.width
         self.char_height = char_rect.height
 
@@ -166,14 +176,23 @@ class SphereVisualization:
 
         # Trending words
         self.trending_words = ["AI", "conversation", "engagement", "learning"]
-        self.directions = [(0,1), (1,0), (0,-1), (-1,0), (1,1), (1,-1), (-1,1), (-1,-1)]
+        self.directions = [
+            (0, 1),
+            (1, 0),
+            (0, -1),
+            (-1, 0),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ]
         self.letter_map = {}
         self.last_update = time.time()
         self.start_time = self.last_update
 
         # Shading characters
         # self.shades = ' .:-=+*#%@'
-        self.shades = ' .○⊙⊗◍◉●'
+        self.shades = " .○⊙⊗◍◉●"
 
         # Audio properties
         self.bass = 0.0
@@ -190,7 +209,9 @@ class SphereVisualization:
     def generate_letter_map(self):
         """Generate letter placement map."""
         self.letter_map = {}
-        selected_words = random.sample(self.trending_words, min(3, len(self.trending_words)))
+        selected_words = random.sample(
+            self.trending_words, min(3, len(self.trending_words))
+        )
 
         for word in selected_words:
             for _ in range(6):  # 2 placements per word
@@ -230,11 +251,15 @@ class SphereVisualization:
             self.last_update = current_time
 
         # Calculate sphere radius with animation
-        r = self.r_base * (1 + self.amp * ((math.sin(2 * math.pi * self.freq * t) + 1) / 2))
+        r = self.r_base * (
+            1 + self.amp * ((math.sin(2 * math.pi * self.freq * t) + 1) / 2)
+        )
 
         # Create grids
-        grid = [[' ' for _ in range(self.grid_cols)] for _ in range(self.grid_rows)]
-        bright_grid = [[0.0 for _ in range(self.grid_cols)] for _ in range(self.grid_rows)]
+        grid = [[" " for _ in range(self.grid_cols)] for _ in range(self.grid_rows)]
+        bright_grid = [
+            [0.0 for _ in range(self.grid_cols)] for _ in range(self.grid_rows)
+        ]
 
         # Fill sphere
         for i in range(self.grid_rows):
@@ -249,7 +274,12 @@ class SphereVisualization:
                 else:
                     angle = 0
 
-                deform = 0.3 * self.bass * (math.sin(6 * angle + 2 * t) + math.sin(4 * angle - t)) / 2.0
+                deform = (
+                    0.3
+                    * self.bass
+                    * (math.sin(6 * angle + 2 * t) + math.sin(4 * angle - t))
+                    / 2.0
+                )
                 r_effective = r * (1 + deform)
 
                 if dist2 < r_effective**2:
@@ -263,7 +293,9 @@ class SphereVisualization:
                         lighting = 0.5
 
                     # Add some texture
-                    brightness = lighting * (0.8 + 0.2 * math.sin(x * 0.5) * math.cos(y * 0.5))
+                    brightness = lighting * (
+                        0.8 + 0.2 * math.sin(x * 0.5) * math.cos(y * 0.5)
+                    )
                     brightness = max(0.0, min(1.0, brightness))
 
                     bright_grid[i][j] = brightness
@@ -281,7 +313,12 @@ class SphereVisualization:
             else:
                 angle = 0
 
-            deform = 0.3 * self.bass * (math.sin(6 * angle + 2 * t) + math.sin(4 * angle - t)) / 2.0
+            deform = (
+                0.3
+                * self.bass
+                * (math.sin(6 * angle + 2 * t) + math.sin(4 * angle - t))
+                / 2.0
+            )
             r_effective = r * (1 + deform)
 
             if dist2 < r_effective**2:
@@ -294,7 +331,7 @@ class SphereVisualization:
         for i in range(self.grid_rows):
             for j in range(self.grid_cols):
                 char = grid[i][j]
-                if char != ' ':
+                if char != " ":
                     bright = bright_grid[i][j]
 
                     # Matrix green color with intensity
@@ -332,7 +369,7 @@ class PygameConversationUI:
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         self._layout_buttons()
 
-        pygame.display.set_caption('EEG-Driven Conversation with RL')
+        pygame.display.set_caption("EEG-Driven Conversation with RL")
 
         # Colors
         self.bg_color = (10, 15, 20)
@@ -354,7 +391,9 @@ class PygameConversationUI:
         self.engagement_widget = EngagementWidget(self.screen_width - 220, 20, 200, 120)
 
         # Bandit visualization dashboard
-        self.bandit_dashboard = BanditVisualizationDashboard(self.screen_width, self.screen_height)
+        self.bandit_dashboard = BanditVisualizationDashboard(
+            self.screen_width, self.screen_height
+        )
         self.show_dashboard = True
 
         # Track latest strategy performance
@@ -365,7 +404,6 @@ class PygameConversationUI:
         self.current_message = None
         self.message_y = 540
         self.messages = deque(maxlen=5)
-
 
         # State
         self.is_recording = False
@@ -379,10 +417,10 @@ class PygameConversationUI:
 
         # Bind orchestrator callbacks
         self.orchestrator.ui_callbacks = {
-            'update_engagement': self._queue_engagement_update,
-            'update_transcript': self._queue_transcript_update,
-            'update_countdown': self._queue_countdown_update,
-            'update_strategy': self._queue_strategy_update,
+            "update_engagement": self._queue_engagement_update,
+            "update_transcript": self._queue_transcript_update,
+            "update_countdown": self._queue_countdown_update,
+            "update_strategy": self._queue_strategy_update,
         }
 
         # Audio management
@@ -412,40 +450,94 @@ class PygameConversationUI:
         # Guide text centred under Stop
         self.guide_pos = (
             self.speak_button_rect.centerx,
-            self.stop_button_rect.bottom + 12
+            self.stop_button_rect.bottom + 12,
         )
 
     def _queue_engagement_update(self, engagement: float):
         """Queue engagement update (thread-safe)."""
-        self.update_queue.put(('engagement', engagement))
+        self.update_queue.put(("engagement", engagement))
 
     def _queue_transcript_update(self, text: str):
         """Queue transcript update (thread-safe)."""
-        self.update_queue.put(('transcript', text))
+        self.update_queue.put(("transcript", text))
 
     def _queue_countdown_update(self, seconds_left: int):
         """Queue countdown update (thread-safe)."""
-        self.update_queue.put(('countdown', seconds_left))
+        self.update_queue.put(("countdown", seconds_left))
 
     def _queue_strategy_update(self, data):
         """Queue strategy update for visualization."""
-        self.update_queue.put(('strategy_update', data))
+        self.update_queue.put(("strategy_update", data))
 
     def extract_words_from_text(self, text: str) -> List[str]:
         """Extract interesting words from AI response."""
         # Remove common words and extract meaningful terms
-        common_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-                       'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
-                       'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
-                       'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them',
-                       'my', 'your', 'his', 'her', 'its', 'our', 'their', 'this', 'that', 'these', 'those'}
+        common_words = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "i",
+            "you",
+            "he",
+            "she",
+            "it",
+            "we",
+            "they",
+            "me",
+            "him",
+            "her",
+            "us",
+            "them",
+            "my",
+            "your",
+            "his",
+            "her",
+            "its",
+            "our",
+            "their",
+            "this",
+            "that",
+            "these",
+            "those",
+        }
 
         # Extract words, clean them up
-        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        words = re.findall(r"\b[a-zA-Z]{3,}\b", text.lower())
         interesting_words = [w for w in words if w not in common_words and len(w) > 3]
 
         # Return up to 8 random words
-        return random.sample(interesting_words, min(8, len(interesting_words))) if interesting_words else ['conversation']
+        return (
+            random.sample(interesting_words, min(8, len(interesting_words)))
+            if interesting_words
+            else ["conversation"]
+        )
 
     def add_message(self, text: str, is_user: bool = False):
         """Add a new message with fade effect."""
@@ -454,7 +546,7 @@ class PygameConversationUI:
             self.current_message.fade_out()
 
         # Create new message
-        color =(200, 255, 210) if is_user else (163, 255, 181)
+        color = (200, 255, 210) if is_user else (163, 255, 181)
         prefix = "You: " if is_user else "AI: "
         full_text = prefix + text
 
@@ -463,11 +555,7 @@ class PygameConversationUI:
             full_text = full_text[:77] + "..."
 
         new_message = FadingText(
-            full_text,
-            self.font_medium,
-            color,
-            self.screen_width // 2,
-            self.message_y
+            full_text, self.font_medium, color, self.screen_width // 2, self.message_y
         )
         new_message.fade_in()
 
@@ -484,7 +572,7 @@ class PygameConversationUI:
         """Handle speak button press."""
         if not self.is_recording:
             self.is_recording = True
-            self.orchestrator.cancel_auto_advance_timer()
+            self.orchestrator.interrupt_current_turn()
             self.orchestrator.stt.start_recording()
 
     def handle_speak_button_release(self):
@@ -494,10 +582,12 @@ class PygameConversationUI:
             audio_data = self.orchestrator.stt.stop_recording()
 
             # Submit to async event loop
-            if hasattr(self.orchestrator, 'event_loop') and self.orchestrator.event_loop:
+            if (
+                hasattr(self.orchestrator, "event_loop")
+                and self.orchestrator.event_loop
+            ):
                 asyncio.run_coroutine_threadsafe(
-                    self._process_turn_async(audio_data),
-                    self.orchestrator.event_loop
+                    self._process_turn_async(audio_data), self.orchestrator.event_loop
                 )
 
     async def _process_turn_async(self, audio_data):
@@ -508,15 +598,15 @@ class PygameConversationUI:
             print(f"Turn processing error: {e}")
 
     def draw_button(
-            self,
-            rect: pygame.Rect,
-            text: str,
-            font: pygame.freetype.Font,
-            *,
-            icon: str | None = None,
-            filled: bool = True,
-            active: bool = False,
-            hover: bool = False,
+        self,
+        rect: pygame.Rect,
+        text: str,
+        font: pygame.freetype.Font,
+        *,
+        icon: str | None = None,
+        filled: bool = True,
+        active: bool = False,
+        hover: bool = False,
     ):
         # Optional solid fill
         if filled:
@@ -531,8 +621,9 @@ class PygameConversationUI:
         # 70 % transparent light-green border
         border_surf = pygame.Surface(rect.size, pygame.SRCALPHA)
         border_color = (180, 255, 180, 178)  # alpha 178 ≈ 70 %
-        pygame.draw.rect(border_surf, border_color, border_surf.get_rect(),
-                         width=2, border_radius=14)  # rounder radius (14)
+        pygame.draw.rect(
+            border_surf, border_color, border_surf.get_rect(), width=2, border_radius=14
+        )  # rounder radius (14)
         self.screen.blit(border_surf, rect.topleft)
 
         # Render icon and text
@@ -546,8 +637,10 @@ class PygameConversationUI:
             centre_y = rect.centery
 
             icon_rect.topleft = (start_x, centre_y - icon_rect.height // 2)
-            label_rect.topleft = (start_x + icon_rect.width + gap,
-                                  centre_y - label_rect.height // 2)
+            label_rect.topleft = (
+                start_x + icon_rect.width + gap,
+                centre_y - label_rect.height // 2,
+            )
 
             self.screen.blit(icon_surf, icon_rect)
             self.screen.blit(label_surf, label_rect)
@@ -595,11 +688,11 @@ class PygameConversationUI:
                 # Update hover states
                 self.button_hover = None
                 if self.speak_button_rect.collidepoint(event.pos):
-                    self.button_hover = 'speak'
+                    self.button_hover = "speak"
                 elif self.summary_button_rect.collidepoint(event.pos):
-                    self.button_hover = 'summary'
+                    self.button_hover = "summary"
                 elif self.stop_button_rect.collidepoint(event.pos):
-                    self.button_hover = 'stop'
+                    self.button_hover = "stop"
 
     def process_updates(self):
         """Process queued updates."""
@@ -607,22 +700,22 @@ class PygameConversationUI:
             while True:
                 update_type, data = self.update_queue.get_nowait()
 
-                if update_type == 'engagement':
+                if update_type == "engagement":
                     self.engagement_widget.update(data)
 
-                elif update_type == 'transcript':
+                elif update_type == "transcript":
                     if data.startswith("User:"):
                         text = data[5:].strip()
-                        if text and text != '[Silent]':
+                        if text and text != "[Silent]":
                             self.add_message(text, is_user=True)
                     elif data.startswith("Assistant:"):
                         text = data[10:].strip()
                         self.add_message(text, is_user=False)
 
-                elif update_type == 'countdown':
+                elif update_type == "countdown":
                     pass  # Could add countdown display
 
-                elif update_type == 'strategy_update':
+                elif update_type == "strategy_update":
                     self.latest_strategy, self.latest_reward = data
                     if self.show_dashboard:
                         self.bandit_dashboard.update(
@@ -656,18 +749,20 @@ class PygameConversationUI:
 
         # Component analysis
         text += "🎯 COMPONENT PERFORMANCE:\n"
-        for component, data in bandit_perf['components'].items():
+        for component, data in bandit_perf["components"].items():
             text += f"\n📊 {component.upper()}:\n"
             text += f"   Best Choice: {data['best_choice']} (score: {data['best_score']:.3f})\n"
-            usage_stats = data['usage_stats']
-            sorted_arms = sorted(usage_stats.items(), key=lambda x: x[1]['average_reward'], reverse=True)
+            usage_stats = data["usage_stats"]
+            sorted_arms = sorted(
+                usage_stats.items(), key=lambda x: x[1]["average_reward"], reverse=True
+            )
             text += f"   Top Performers:\n"
             for i, (arm, stats) in enumerate(sorted_arms[:3]):
                 text += f"     {i+1}. {arm}: {stats['average_reward']:.3f} avg "
                 text += f"({stats['usage_count']} uses, {stats['success_rate']:.1%} success)\n"
 
         # Restart information
-        restart_stats = bandit_perf['restart_stats']
+        restart_stats = bandit_perf["restart_stats"]
         text += f"\n🔄 ADAPTIVE RESTARTS:\n"
         text += f"   Total Restarts: {restart_stats['total_restarts']}\n"
         text += f"   Last Restart: Step {restart_stats['last_restart_step']}\n"
@@ -712,7 +807,7 @@ class PygameConversationUI:
             self.font_medium,
             icon=self.mic_icon,  # ← mic in front
             active=self.is_recording,
-            hover=self.button_hover == 'speak',
+            hover=self.button_hover == "speak",
             filled=True,
         )
 
@@ -721,7 +816,7 @@ class PygameConversationUI:
             self.summary_button_rect,
             "Summary",
             self.font_small,
-            hover=self.button_hover == 'summary',
+            hover=self.button_hover == "summary",
             filled=False,
         )
 
@@ -729,14 +824,16 @@ class PygameConversationUI:
             self.stop_button_rect,
             "Stop",
             self.font_small,
-            hover=self.button_hover == 'stop',
+            hover=self.button_hover == "stop",
             filled=False,
         )
 
         # Draw engagement value at top
-        if hasattr(self.orchestrator.engagement_scorer, 'current_engagement'):
+        if hasattr(self.orchestrator.engagement_scorer, "current_engagement"):
             engagement_text = f"Engagement: {self.orchestrator.engagement_scorer.current_engagement:.3f}"
-            self.font_small.render_to(self.screen, (20, 20), engagement_text, self.text_color)
+            self.font_small.render_to(
+                self.screen, (20, 20), engagement_text, self.text_color
+            )
 
         # Draw bandit dashboard if enabled
         if self.show_dashboard:
@@ -759,7 +856,9 @@ class PygameConversationUI:
     def run(self):
         """Main UI loop."""
         # Initial greeting
-        self.add_message("Hello! I'm ready to chat. Hold space to speak.", is_user=False)
+        self.add_message(
+            "Hello! I'm ready to chat. Hold space to speak.", is_user=False
+        )
 
         while self.running:
             self.handle_events()
@@ -779,6 +878,7 @@ def create_pygame_ui(orchestrator):
     # Run async session in background
     async def session_runner():
         from bleak import BleakClient
+
         async with BleakClient(orchestrator.eeg_manager.device_address) as client:
             await orchestrator.run_session(client)
 

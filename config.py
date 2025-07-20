@@ -58,3 +58,13 @@ MAX_CONVERSATION_TURNS = 100
 
 # Auto-advance timeout
 AUTO_ADVANCE_TIMEOUT_SEC = 5  # seconds to wait before auto advancing
+
+# Contextual Bandit Configuration
+@dataclass
+class ContextualBanditConfig:
+    context_window_size: int = 5
+    num_candidates: int = 20
+    ucb_confidence: float = 2.0
+    max_strategy_memory: int = 100
+    min_experience_threshold: int = 3
+    similarity_top_k: int = 5

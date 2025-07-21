@@ -504,6 +504,8 @@ class PygameConversationUI:
         """Process turn in async context."""
         try:
             await self.orchestrator.process_turn(audio_data)
+            # Give UI time to process the strategy update
+            await asyncio.sleep(0.1)  # ← ADD THIS
         except Exception as e:
             print(f"Turn processing error: {e}")
 
@@ -604,7 +606,7 @@ class PygameConversationUI:
     def process_updates(self):
         """Process queued updates."""
         updates_processed = 0
-        max_updates_per_frame = 10  # Prevent queue overflow
+        max_updates_per_frame = 100  # Prevent queue overflow
 
         try:
             while updates_processed < max_updates_per_frame:
@@ -774,10 +776,15 @@ class PygameConversationUI:
 
         while self.running:
             self.handle_events()
-            self.process_updates()
+
+            # Process updates MORE frequently
+            self.process_updates()  # ← Already called once
+            pygame.time.wait(10)  # ← ADD small wait
+            self.process_updates()  # ← Call again
+
             self.update_audio_level()
             self.draw()
-            self.clock.tick(60)  # 60 FPS
+            self.clock.tick(60)
 
         pygame.quit()
 

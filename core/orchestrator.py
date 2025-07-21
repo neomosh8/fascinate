@@ -100,8 +100,6 @@ class ConversationOrchestrator:
         if "update_engagement" in self.ui_callbacks:
             self.ui_callbacks["update_engagement"](engagement)
 
-    # In core/orchestrator.py, add this method after _on_eeg_data method (around line 70)
-
     def _calculate_tts_engagement_score(
         self, engagement_during_tts: List[float], tts_duration: float
     ) -> Dict[str, float]:
@@ -345,8 +343,9 @@ class ConversationOrchestrator:
             self.ui_callbacks["update_transcript"](
                 f"User: {user_text if user_spoke else '[Silent]'}"
             )
+            await asyncio.sleep(0.2)
 
-        # 2. Get current engagement (before response)
+            # 2. Get current engagement (before response)
         engagement_before = self.engagement_scorer.current_engagement
 
         # Build context vector before selecting strategy
@@ -363,7 +362,7 @@ class ConversationOrchestrator:
         # Add a small delay to ensure UI processes this update
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, None))
-            await asyncio.sleep(0.05)  # Small delay to ensure update is processed
+            await asyncio.sleep(0.5)  # Small delay to ensure update is processed
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
@@ -417,8 +416,9 @@ class ConversationOrchestrator:
             self.ui_callbacks["update_strategy"]((strategy, reward))
             # Log to ensure update was sent
             self.logger.info(f"UI update sent: strategy={strategy.tone}, reward={reward:.3f}")
+            await asyncio.sleep(0.5)
 
-        # Update state
+            # Update state
         self.last_engagement = engagement_after
         self.turn_count += 1
 
@@ -459,7 +459,6 @@ class ConversationOrchestrator:
         )
 
         return turn_data
-
 
     async def run_session(self, client):
         """Run the main conversation session."""
@@ -516,6 +515,7 @@ class ConversationOrchestrator:
 
             if "update_countdown" in self.ui_callbacks:
                 self.ui_callbacks["update_countdown"](0)
+                await asyncio.sleep(0.1)
 
             self.logger.info("Auto-advancing conversation (user silent)")
             empty_audio = b""

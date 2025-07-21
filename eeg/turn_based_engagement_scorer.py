@@ -127,10 +127,10 @@ class TurnBasedEngagementScorer:
 
         # 1. Calculate reliable band powers from full window
         band_powers = self._calculate_window_band_powers(ch1_data, ch2_data)
-
+        print(band_powers)
         # 2. Update adaptive baseline
         self._update_adaptive_baseline(band_powers)
-
+        print(band_powers)
         # 3. Calculate window-level engagement
         window_engagement = self._calculate_window_engagement(band_powers)
 
@@ -220,7 +220,6 @@ class TurnBasedEngagementScorer:
 
         for band, power in band_powers.items():
             log_power = np.log10(max(power, 1e-12))
-
             if self.baseline_initialized and band in self.ema_baseline_stats:
                 mean = self.ema_baseline_stats[band]['mean']
                 std = self.ema_baseline_stats[band]['std']

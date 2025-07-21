@@ -32,6 +32,7 @@ class Strategy:
             f"Use natural speech patterns with appropriate pauses, emphasis through word choice, "
             f"and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
             f"for the topic of conversation maintain what user wants through the session. don't break topic or subject. continue the topic as it goes to real quality conversation"
+            f"don't mention if the user is silent, go on"
         )
 
     def to_key(self) -> str:

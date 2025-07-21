@@ -1,7 +1,8 @@
-"""Turn-based EEG engagement scorer with raw beta/(alpha+theta)."""
+"""Turn-based EEG engagement scorer with simple 4-minute rolling baseline."""
 
 import numpy as np
 from scipy import signal
+from collections import deque
 from typing import Tuple, Dict, List
 from dataclasses import dataclass
 import time
@@ -20,11 +21,11 @@ class FrequencyBands:
 
 
 class TurnBasedEngagementScorer:
-    """Turn-based engagement scorer with raw beta/(alpha+theta)."""
+    """Turn-based engagement scorer with simple 4-minute rolling baseline."""
 
     def __init__(self,
-                 baseline_duration_sec: float = 0.0,  # Not used anymore
-                 adaptation_rate: float = 0.1):       # Not used anymore
+                 baseline_duration_sec: float = 240.0,  # 4 minutes
+                 adaptation_rate: float = 0.1):
 
         self.bands = FrequencyBands()
 
@@ -32,9 +33,17 @@ class TurnBasedEngagementScorer:
         self.filters = {}
         self._create_filters()
 
+        # Simple 4-minute rolling baseline
+        # Store the last 4 minutes worth of band powers
+        max_turns = 50  # ~4 minutes at ~5 seconds per turn
+        self.baseline_powers = {
+            band: deque(maxlen=max_turns) for band in self._get_band_names()
+        }
+
         # Turn tracking
         self.current_turn_data = []
         self.turn_active = False
+        self.turn_start_time = 0
         self.turn_count = 0
 
         # Current engagement
@@ -66,19 +75,21 @@ class TurnBasedEngagementScorer:
         """Start tracking EEG data for a new turn."""
         self.current_turn_data = []
         self.turn_active = True
+        self.turn_start_time = time.time()
 
     def add_eeg_chunk(self, ch1_samples: List[float], ch2_samples: List[float]):
         """Add EEG chunk to current turn data."""
         if self.turn_active:
+            # Store as pairs of (ch1, ch2) samples
             for ch1, ch2 in zip(ch1_samples, ch2_samples):
                 self.current_turn_data.append((ch1, ch2))
 
     def end_turn(self, tts_duration: float) -> float:
         """
-        End turn and calculate raw engagement.
+        End turn and calculate single engagement value.
 
         Returns:
-            Raw engagement value beta/(alpha+theta)
+            Single scalar engagement value [0.0, 1.0]
         """
         if not self.turn_active or len(self.current_turn_data) < 100:
             self.turn_active = False
@@ -90,8 +101,8 @@ class TurnBasedEngagementScorer:
             ch1_data = eeg_data[:, 0]
             ch2_data = eeg_data[:, 1]
 
-            # Calculate raw engagement
-            engagement = self._calculate_raw_engagement(ch1_data, ch2_data)
+            # Calculate engagement for this turn
+            engagement = self._calculate_turn_engagement(ch1_data, ch2_data, tts_duration)
 
             self.current_engagement = engagement
             self.turn_count += 1
@@ -100,38 +111,33 @@ class TurnBasedEngagementScorer:
             return engagement
 
         except Exception as e:
-            print(f"Error calculating engagement: {e}")
+            print(f"Error calculating turn engagement: {e}")
             self.turn_active = False
             return self.current_engagement
 
-    def _calculate_raw_engagement(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> float:
-        """Calculate raw beta/(alpha+theta) engagement."""
+    def _calculate_turn_engagement(self, ch1_data: np.ndarray, ch2_data: np.ndarray,
+                                   tts_duration: float) -> float:
+        """Calculate engagement for entire turn window."""
 
-        # Calculate band powers
-        band_powers = self._calculate_band_powers(ch1_data, ch2_data)
+        # 1. Calculate band powers from full window
+        band_powers = self._calculate_window_band_powers(ch1_data, ch2_data)
 
-        # Raw engagement = beta / (alpha + theta)
-        beta = band_powers.get('beta', 0)
-        alpha = band_powers.get('alpha', 0)
-        theta = band_powers.get('theta', 0)
+        # 2. Add to rolling baseline (always)
+        for band, power in band_powers.items():
+            log_power = np.log10(max(power, 1e-12))
+            self.baseline_powers[band].append(log_power)
 
-        denominator = alpha + theta
+        # 3. Calculate engagement using rolling baseline
+        engagement = self._calculate_window_engagement(band_powers)
 
-        if denominator > 0:
-            engagement = beta / denominator
-        else:
-            engagement = 0.0
+        return np.clip(engagement, 0.0, 1.0)
 
-        print(f"Raw engagement: beta={beta:.2e}, alpha={alpha:.2e}, theta={theta:.2e}, ratio={engagement:.4f}")
-
-        return max(0.0, engagement)  # Just prevent negative values
-
-    def _calculate_band_powers(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> Dict[str, float]:
-        """Calculate band powers from EEG data."""
+    def _calculate_window_band_powers(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> Dict[str, float]:
+        """Calculate band powers from entire window."""
         band_powers = {}
 
         for band_name, sos in self.filters.items():
-            # Filter the data
+            # Filter entire window
             ch1_filtered = signal.sosfilt(sos, ch1_data)
             ch2_filtered = signal.sosfilt(sos, ch2_data)
 
@@ -144,6 +150,45 @@ class TurnBasedEngagementScorer:
 
         return band_powers
 
+    def _calculate_window_engagement(self, band_powers: Dict[str, float]) -> float:
+        """Calculate engagement using simple rolling baseline."""
+
+        # Normalize against 4-minute rolling baseline
+        normalized_powers = {}
+
+        for band, power in band_powers.items():
+            log_power = np.log10(max(power, 1e-12))
+
+            baseline_data = list(self.baseline_powers[band])
+
+            if len(baseline_data) >= 3:  # Need at least 3 samples
+                # Simple rolling baseline
+                mean = np.mean(baseline_data)
+                std = max(np.std(baseline_data), 0.01)  # Prevent division by zero
+                normalized_powers[band] = (log_power - mean) / std
+            else:
+                # Not enough data yet - return neutral
+                normalized_powers[band] = 0.0
+
+        # Calculate engagement using beta/(alpha + theta) ratio
+        if all(band in normalized_powers for band in ['beta', 'alpha', 'theta']):
+            beta = normalized_powers['beta']
+            alpha = normalized_powers['alpha']
+            theta = normalized_powers['theta']
+
+            denominator = alpha + theta
+            if abs(denominator) > 0.1:
+                engagement_raw = beta / denominator
+            else:
+                engagement_raw = beta
+
+            # Normalize to [0,1] using tanh (prevents extreme values)
+            engagement = engagement_raw
+        else:
+            engagement = 0.5
+
+        return engagement
+
     def get_current_engagement(self) -> float:
         """Get current engagement value."""
         return self.current_engagement
@@ -151,10 +196,10 @@ class TurnBasedEngagementScorer:
     # Legacy compatibility properties
     @property
     def baseline_initialized(self) -> bool:
-        """For compatibility - always true now."""
-        return True
+        """For compatibility - true if we have enough data."""
+        return any(len(self.baseline_powers[band]) >= 3 for band in self._get_band_names())
 
     @property
     def baseline_collected(self) -> bool:
-        """For compatibility - always true now."""
-        return True
+        """For compatibility."""
+        return self.baseline_initialized

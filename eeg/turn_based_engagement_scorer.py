@@ -145,10 +145,10 @@ class TurnBasedEngagementScorer:
 
         # 7. Combine into single scalar
         final_engagement = (
-                0.4 * window_engagement +  # Primary: overall engagement level
-                0.3 * signal_momentum +  # Secondary: signal momentum
-                0.2 * sub_window_trend +  # Tertiary: within-window trend
-                0.1 * consistency_score  # Quaternary: consistency
+                1 * window_engagement   # Primary: overall engagement level
+                # 0.3 * signal_momentum +  # Secondary: signal momentum
+                # 0.2 * sub_window_trend +  # Tertiary: within-window trend
+                # 0.1 * consistency_score  # Quaternary: consistency
         )
 
         return np.clip(final_engagement, 0.0, 1.0)

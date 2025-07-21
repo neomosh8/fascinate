@@ -22,7 +22,6 @@ class EmbeddingService:
         )
         embedding = np.array(response.data[0].embedding)
         self.cache[text] = embedding
-        print('embeding',embedding)
         return embedding
 
 

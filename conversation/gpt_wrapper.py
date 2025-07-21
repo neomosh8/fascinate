@@ -75,7 +75,6 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
                 "role": "assistant",
                 "content": response
             })
-            print("%%%%%%%%",messages)
             return response
 
         except Exception as e:

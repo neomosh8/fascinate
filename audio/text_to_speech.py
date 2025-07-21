@@ -45,8 +45,8 @@ class TextToSpeech:
             # Generate TTS instructions from strategy
             instructions = self._strategy_to_instructions(strategy)
 
-            print(f"TTS Instructions: {instructions}")
-            print(f"TTS Text: {text[:100]}...")
+            # print(f"TTS Instructions: {instructions}")
+            # print(f"TTS Text: {text[:100]}...")
 
             # Generate audio
             start_time = asyncio.get_event_loop().time()

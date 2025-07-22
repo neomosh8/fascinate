@@ -186,61 +186,26 @@ class ConversationOrchestrator:
             self.logger.error(f"Initialization failed: {e}")
             return False
 
-    def _calculate_adaptive_reward(
-            self,
-            engagement_before: float,
-            engagement_after: float,
-            tts_duration: float,
-            user_spoke: bool,
-            session_duration: float,
-            user_text: str,
-            assistant_text: str,
-            context_type: str = "normal",
-    ) -> float:
-        """Calculate reward using single engagement value per turn."""
-
-        # Simple engagement delta (no more complex TTS analysis needed)
+    def _calculate_adaptive_reward(self, engagement_before, engagement_after, user_spoke, context_type):
+        # 1. Raw engagement delta (no normalization!)
         engagement_delta = engagement_after - engagement_before
 
-        # Store engagement history for adaptive normalization
-        self.engagement_history.append(engagement_delta)
-        if len(self.engagement_history) > 50:
-            self.engagement_history.pop(0)
+        # 2. Base reward is just the delta
+        reward = engagement_delta * 5.0  # Amplify to meaningful range
 
-        # Adaptive baseline
-        if len(self.engagement_history) > 10:
-            self.reward_baseline = np.mean(self.engagement_history)
-            self.reward_std = max(np.std(self.engagement_history), 0.01)
-
-        # Base reward from engagement change
-        normalized_delta = (engagement_delta - self.reward_baseline) / self.reward_std
-        reward = normalized_delta
-
-        # Bonuses for high absolute engagement
+        # 3. Absolute engagement bonuses
         if engagement_after > 0.7:
-            reward += 0.3 * (engagement_after - 0.7)
+            reward += 0.5  # High absolute engagement bonus
+        elif engagement_after > 0.5:
+            reward += 0.2  # Medium engagement bonus
 
-        # Penalty for low engagement
+        # 4. Penalties for low engagement
         if engagement_after < 0.3:
-            reward -= 0.3 * (0.3 - engagement_after)
+            reward -= 0.5
 
-        # User interaction bonus
+        # 5. User interaction bonus
         if user_spoke:
-            response_quality = self._assess_response_quality(user_text, assistant_text)
-            reward += 0.2 * response_quality
-
-        # Session progression multiplier
-        progression_multiplier = min(1.0 + session_duration / 300, 1.5)
-        reward *= progression_multiplier
-
-        # Context-specific adjustments
-        if context_type == "auto_advance" and engagement_after > 0.6:
-            reward += 0.3
-        elif context_type == "cold_start" and engagement_after > 0.4:
-            reward += 0.2
-
-        # Clip final reward
-        reward = np.clip(reward, -2.0, 2.0)
+            reward += 0.1
 
         return reward
 

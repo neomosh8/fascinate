@@ -151,16 +151,12 @@ class TurnBasedEngagementScorer:
             self.turn_data.extend(zip(ch1, ch2))
 
     def end_turn(self, tts_duration: Optional[float] = None) -> float:
-        """Process the complete turn and return engagement score."""
-        if not self.turn_active:
+        """Process turn with temporal dynamics analysis."""
+        if not self.turn_active or not self.baseline_ready:
+            self.turn_active = False
             return self.current_engagement
 
-        if not self.baseline_ready:
-            # Baseline not ready yet, return neutral engagement
-            self.turn_active = False
-            return 0.5
-
-        if len(self.turn_data) < 100:  # Need minimum amount of data
+        if len(self.turn_data) < 500:  # Need minimum data
             self.turn_active = False
             return self.current_engagement
 
@@ -168,43 +164,110 @@ class TurnBasedEngagementScorer:
         eeg = np.asarray(self.turn_data)
         ch1_data, ch2_data = eeg[:, 0], eeg[:, 1]
 
-        # Calculate band powers for this turn
-        current_powers = self._band_powers(ch1_data, ch2_data)
+        # 🎯 NEW: Windowed analysis instead of single mean
+        engagement_trajectory = self._calculate_engagement_trajectory(ch1_data, ch2_data)
 
-        # Calculate z-scores relative to baseline
-        z_scores = {}
-        for band in ['alpha', 'beta', 'theta']:
-            if band in self.baseline_stats:
-                baseline_mean = self.baseline_stats[band]['mean']
-                baseline_std = self.baseline_stats[band]['std']
-                z_scores[band] = (current_powers[band] - baseline_mean) / baseline_std
-            else:
-                z_scores[band] = 0.0
+        # Aggregate trajectory into single score with temporal awareness
+        final_engagement = self._aggregate_trajectory(engagement_trajectory)
 
-        # Calculate engagement from z-scores
-        engagement = self._calculate_engagement_from_z_scores(z_scores)
-
-        # Apply smoothing if specified
+        # Apply smoothing and update
         if self.smoothing > 0:
-            engagement = (self.smoothing * engagement +
-                          (1 - self.smoothing) * self.current_engagement)
+            final_engagement = (self.smoothing * final_engagement +
+                                (1 - self.smoothing) * self.current_engagement)
 
-        # Update current engagement
-        self.current_engagement = max(0, min(1, engagement))
+        self.current_engagement = max(0, min(1, final_engagement))
 
-        # Slowly update baseline (adapt to session-long changes)
+        # Update baseline
+        current_powers = self._band_powers(ch1_data, ch2_data)
         self._update_baseline(current_powers)
 
-        # Increment turn counter
         self.turn_idx += 1
         self.turn_active = False
 
-        # Debug output
-        print(f"\n[Turn {self.turn_idx}] Z-scores: "
-              f"α={z_scores['alpha']:+.2f}, β={z_scores['beta']:+.2f}, θ={z_scores['theta']:+.2f} "
-              f"→ engagement={self.current_engagement:.3f}")
+        # Debug output with trajectory info
+        traj_info = f"peak={np.max(engagement_trajectory):.3f}, trend={engagement_trajectory[-1] - engagement_trajectory[0]:+.3f}"
+        print(f"\n[Turn {self.turn_idx}] Trajectory: {traj_info} → final={self.current_engagement:.3f}")
 
         return self.current_engagement
+
+    def _calculate_engagement_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
+        """Calculate engagement over time using sliding windows."""
+
+        # Window parameters
+        window_size = int(2.0 * EEG_SAMPLE_RATE)  # 2-second windows
+        overlap = int(0.5 * EEG_SAMPLE_RATE)  # 0.5-second overlap
+        step_size = window_size - overlap  # 1.5-second steps
+
+        engagement_values = []
+
+        # Slide window across the entire epoch
+        for start_idx in range(0, len(ch1_data) - window_size + 1, step_size):
+            end_idx = start_idx + window_size
+
+            # Extract window
+            window_ch1 = ch1_data[start_idx:end_idx]
+            window_ch2 = ch2_data[start_idx:end_idx]
+
+            # Calculate powers for this window
+            window_powers = self._band_powers(window_ch1, window_ch2)
+
+            # Calculate z-scores for this window
+            z_scores = {}
+            for band in ['alpha', 'beta', 'theta']:
+                if band in self.baseline_stats:
+                    baseline_mean = self.baseline_stats[band]['mean']
+                    baseline_std = self.baseline_stats[band]['std']
+                    z_scores[band] = (window_powers[band] - baseline_mean) / baseline_std
+                else:
+                    z_scores[band] = 0.0
+
+            # Calculate engagement for this window
+            window_engagement = self._calculate_engagement_from_z_scores(z_scores)
+            engagement_values.append(window_engagement)
+
+        return np.array(engagement_values)
+
+    def _aggregate_trajectory(self, trajectory: np.ndarray) -> float:
+        """Aggregate engagement trajectory into single score with temporal awareness."""
+
+        if len(trajectory) == 0:
+            return 0.5
+
+        if len(trajectory) == 1:
+            return trajectory[0]
+
+        # Multiple aggregation strategies - choose based on what matters most
+
+        # Strategy 1: Weighted average (more weight to recent)
+        weights = np.linspace(0.5, 1.5, len(trajectory))  # More weight to end
+        weighted_avg = np.average(trajectory, weights=weights)
+
+        # Strategy 2: Peak engagement (reward high moments)
+        peak_engagement = np.max(trajectory)
+
+        # Strategy 3: Final vs initial (trend matters)
+        if len(trajectory) >= 3:
+            trend = trajectory[-1] - trajectory[0]  # Positive = improving
+        else:
+            trend = 0
+
+        # Strategy 4: Stability (consistent engagement is good)
+        stability = 1.0 - np.std(trajectory)  # High stability = low variance
+        stability = max(0, stability)
+
+        # Strategy 5: 75th percentile (most of the time was good)
+        percentile_75 = np.percentile(trajectory, 75)
+
+        # 🎯 Combine strategies (you can tune these weights)
+        final_score = (
+                0.3 * weighted_avg +  # Moderate weight to overall average
+                0.1 * peak_engagement +  # Small bonus for high moments
+                0.4 * max(0, trend * 5) +  # BIG bonus for positive trends (×5 amplification)
+                0.2 * percentile_75  # Sustained good performance
+            # Note: removed stability weight to focus more on building engagement
+        )
+
+        return np.clip(final_score, 0, 1)
 
     def _calculate_engagement_from_z_scores(self, z_scores: Dict[str, float]) -> float:
         """Calculate engagement score from z-scored band powers with proper sensitivity."""

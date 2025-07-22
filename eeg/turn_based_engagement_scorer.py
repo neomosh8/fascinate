@@ -1,205 +1,157 @@
-"""Turn-based EEG engagement scorer with simple 4-minute rolling baseline."""
-
 import numpy as np
 from scipy import signal
-from collections import deque
-from typing import Tuple, Dict, List
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
-import time
 
 from config import EEG_SAMPLE_RATE
 
 
 @dataclass
 class FrequencyBands:
-    """Standard EEG frequency bands."""
     delta: Tuple[float, float] = (0.5, 4.0)
     theta: Tuple[float, float] = (4.0, 8.0)
     alpha: Tuple[float, float] = (8.0, 13.0)
-    beta: Tuple[float, float] = (13.0, 30.0)
+    beta:  Tuple[float, float] = (13.0, 30.0)
     gamma: Tuple[float, float] = (30.0, 100.0)
 
 
 class TurnBasedEngagementScorer:
-    """Turn-based engagement scorer with simple 4-minute rolling baseline."""
+    """
+    Engagement scorer with two normalisation modes:
+
+    mode="relative"   -> beta / (alpha+theta) using relative power,
+                         **excluding delta** from the denominator.
+    mode="baseline"   -> beta' / (alpha'+theta') where each band is
+                         divided by its own running baseline.
+
+    Switch modes by passing `normalisation_mode` in __init__.
+    """
 
     def __init__(self,
-                 baseline_duration_sec: float = 240.0,  # 4 minutes
-                 adaptation_rate: float = 0.1):
+                 baseline_duration_sec: float = 10,
+                 baseline_update_rate: float = 0.001,
+                 smoothing: float = 0.0,
+                 normalisation_mode: str = "baseline"  # "relative" or "baseline"
+                 ):
+
+        self.mode = normalisation_mode.lower()
+        if self.mode not in {"relative", "baseline"}:
+            raise ValueError("normalisation_mode must be 'relative' or 'baseline'")
 
         self.bands = FrequencyBands()
+        self.filters = self._design_filters()
 
-        # Create bandpass filters
-        self.filters = {}
-        self._create_filters()
+        # rolling baseline (absolute powers)
+        self._samples_needed = int(baseline_duration_sec * EEG_SAMPLE_RATE)
+        self._base_raw: Dict[str, float] | None = None   # absolute powers baseline
+        self._buf_ch1: List[float] = []
+        self._buf_ch2: List[float] = []
+        self.beta_rate = float(np.clip(baseline_update_rate, 0, 1))
 
-        # Simple 4-minute rolling baseline
-        # Store the last 4 minutes worth of band powers
-        max_turns = 50  # ~4 minutes at ~5 seconds per turn
-        self.baseline_powers = {
-            band: deque(maxlen=max_turns) for band in self._get_band_names()
-        }
-
-        # Turn tracking
-        self.current_turn_data = []
+        # state
+        self.turn_data: List[Tuple[float, float]] = []
         self.turn_active = False
-        self.turn_start_time = 0
-        self.turn_count = 0
-
-        # Current engagement
+        self.turn_idx = 0
+        self.smoothing = smoothing
         self.current_engagement = 0.5
 
-    def _get_band_names(self) -> List[str]:
-        """Get list of frequency band names."""
-        return ['delta', 'theta', 'alpha', 'beta', 'gamma']
-
-    def _create_filters(self):
-        """Create bandpass filters for each frequency band."""
+    # --------------- filter design & helpers -----------------
+    def _design_filters(self):
         nyq = EEG_SAMPLE_RATE / 2
+        flts = {}
+        for name, (lo, hi) in self.bands.__dict__.items():
+            hi = min(hi, nyq * 0.95)
+            sos = signal.butter(4, [lo / nyq, hi / nyq], btype="band", output="sos")
+            flts[name] = sos
+        return flts
 
-        for band_name in self._get_band_names():
-            band_range = getattr(self.bands, band_name)
-            low_freq, high_freq = band_range
+    def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        out = {}
+        for name, sos in self.filters.items():
+            xf = signal.sosfilt(sos, x)
+            yf = signal.sosfilt(sos, y)
+            out[name] = 0.5 * (np.mean(xf ** 2) + np.mean(yf ** 2))
+        return out
 
-            # Ensure frequencies are within Nyquist limit
-            high_freq = min(high_freq, nyq * 0.95)
+    # --------------- baseline handling -----------------
+    @property
+    def baseline_ready(self) -> bool:
+        return self._base_raw is not None
 
-            if low_freq < nyq and high_freq > low_freq:
-                sos = signal.butter(
-                    4, [low_freq / nyq, high_freq / nyq],
-                    btype='band', output='sos'
-                )
-                self.filters[band_name] = sos
+    def _feed_baseline(self, c1: List[float], c2: List[float]):
+        if self.baseline_ready:
+            return
+        self._buf_ch1.extend(c1)
+        self._buf_ch2.extend(c2)
+        if len(self._buf_ch1) >= self._samples_needed:
+            a = np.array(self._buf_ch1[:self._samples_needed])
+            b = np.array(self._buf_ch2[:self._samples_needed])
+            self._base_raw = self._band_powers(a, b)
+            print("\n[Baseline captured]")
+            for k in self.filters:
+                print(f"{k:5s} abs={self._base_raw[k]:.4e}")
+            print()
 
+    def _update_baseline(self, new_raw: Dict[str, float]):
+        r = self.beta_rate
+        for k in self._base_raw:
+            self._base_raw[k] = (1 - r) * self._base_raw[k] + r * new_raw[k]
+
+    # --------------- public API -----------------
     def start_turn(self):
-        """Start tracking EEG data for a new turn."""
-        self.current_turn_data = []
+        self.turn_data = []
         self.turn_active = True
-        self.turn_start_time = time.time()
 
-    def add_eeg_chunk(self, ch1_samples: List[float], ch2_samples: List[float]):
-        """Add EEG chunk to current turn data."""
-        if self.turn_active:
-            # Store as pairs of (ch1, ch2) samples
-            for ch1, ch2 in zip(ch1_samples, ch2_samples):
-                self.current_turn_data.append((ch1, ch2))
+    def add_eeg_chunk(self, ch1: List[float], ch2: List[float]):
+        self._feed_baseline(ch1, ch2)
+        if self.turn_active and self.baseline_ready:
+            self.turn_data.extend(zip(ch1, ch2))
 
-    def end_turn(self, tts_duration: float) -> float:
-        """
-        End turn and calculate single engagement value.
-
-        Returns:
-            Single scalar engagement value [0.0, 1.0]
-        """
-        if not self.turn_active or len(self.current_turn_data) < 100:
+    def end_turn(self, tts_duration: Optional[float] = None) -> float:
+        if not self.turn_active or len(self.turn_data) < 100:
             self.turn_active = False
             return self.current_engagement
 
-        try:
-            # Convert to numpy arrays
-            eeg_data = np.array(self.current_turn_data)
-            ch1_data = eeg_data[:, 0]
-            ch2_data = eeg_data[:, 1]
+        eeg = np.asarray(self.turn_data)
+        a, b = eeg[:, 0], eeg[:, 1]
+        raw_pow = self._band_powers(a, b)
 
-            # Calculate engagement for this turn
-            engagement = self._calculate_turn_engagement(ch1_data, ch2_data, tts_duration)
+        # -------- normalisation branch -------
+        if self.mode == "relative":
+            total_no_delta = sum(raw_pow[k] for k in raw_pow if k != "delta")
+            rel = {k: raw_pow[k] / total_no_delta if total_no_delta else 0
+                   for k in raw_pow}
+            beta, alpha, theta = rel["beta"], rel["alpha"], rel["theta"]
+            base_rel = {k: self._base_raw[k] / total_no_delta
+                        for k in ("beta", "alpha", "theta")}
+            base_ratio = base_rel["beta"] / (base_rel["alpha"] + base_rel["theta"])
+            raw_ratio = beta / (alpha + theta) if (alpha + theta) else 0
 
-            self.current_engagement = engagement
-            self.turn_count += 1
-            self.turn_active = False
+        else:  # "baseline" mode
+            beta = raw_pow["beta"]  / self._base_raw["beta"]
+            alpha = raw_pow["alpha"] / self._base_raw["alpha"]
+            theta = raw_pow["theta"] / self._base_raw["theta"]
+            base_ratio = 1.0  # by definition after band-wise normalisation
+            raw_ratio = beta / (alpha + theta) if (alpha + theta) else 0
 
-            return engagement
+        engagement = raw_ratio / base_ratio if base_ratio else 0
 
-        except Exception as e:
-            print(f"Error calculating turn engagement: {e}")
-            self.turn_active = False
-            return self.current_engagement
+        if self.smoothing:
+            engagement = (self.smoothing * engagement +
+                          (1 - self.smoothing) * self.current_engagement)
 
-    def _calculate_turn_engagement(self, ch1_data: np.ndarray, ch2_data: np.ndarray,
-                                   tts_duration: float) -> float:
-        """Calculate engagement for entire turn window."""
+        self.current_engagement = max(0, engagement)
+        self.turn_idx += 1
+        self.turn_active = False
+        self._update_baseline(raw_pow)
 
-        # 1. Calculate band powers from full window
-        band_powers = self._calculate_window_band_powers(ch1_data, ch2_data)
-
-        # 2. Add to rolling baseline (always)
-        for band, power in band_powers.items():
-            log_power = np.log10(max(power, 1e-12))
-            self.baseline_powers[band].append(log_power)
-
-        # 3. Calculate engagement using rolling baseline
-        engagement = self._calculate_window_engagement(band_powers)
-
-        return np.clip(engagement, 0.0, 1.0)
-
-    def _calculate_window_band_powers(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> Dict[str, float]:
-        """Calculate band powers from entire window."""
-        band_powers = {}
-
-        for band_name, sos in self.filters.items():
-            # Filter entire window
-            ch1_filtered = signal.sosfilt(sos, ch1_data)
-            ch2_filtered = signal.sosfilt(sos, ch2_data)
-
-            # Calculate power (mean squared amplitude)
-            ch1_power = np.mean(ch1_filtered ** 2)
-            ch2_power = np.mean(ch2_filtered ** 2)
-
-            # Average across channels
-            band_powers[band_name] = (ch1_power + ch2_power) / 2
-
-        return band_powers
-
-    def _calculate_window_engagement(self, band_powers: Dict[str, float]) -> float:
-        """Calculate engagement using simple rolling baseline."""
-
-        # Normalize against 4-minute rolling baseline
-        normalized_powers = {}
-
-        for band, power in band_powers.items():
-            log_power = np.log10(max(power, 1e-12))
-
-            baseline_data = list(self.baseline_powers[band])
-
-            if len(baseline_data) >= 3:  # Need at least 3 samples
-                # Simple rolling baseline
-                mean = np.mean(baseline_data)
-                std = max(np.std(baseline_data), 0.01)  # Prevent division by zero
-                normalized_powers[band] = (log_power - mean) / std
-            else:
-                # Not enough data yet - return neutral
-                normalized_powers[band] = 0.0
-
-        # Calculate engagement using beta/(alpha + theta) ratio
-        if all(band in normalized_powers for band in ['beta', 'alpha', 'theta']):
-            beta = normalized_powers['beta']
-            alpha = normalized_powers['alpha']
-            theta = normalized_powers['theta']
-
-            denominator = alpha + theta
-            if abs(denominator) > 0.1:
-                engagement_raw = beta / denominator
-            else:
-                engagement_raw = beta
-
-            # Normalize to [0,1] using tanh (prevents extreme values)
-            engagement = engagement_raw
-        else:
-            engagement = 0.5
-
-        return engagement
-
-    def get_current_engagement(self) -> float:
-        """Get current engagement value."""
+        # ------------ debug print ------------
+        print(f"\n[Turn {self.turn_idx}] ({self.mode}) "
+              f"raw_ratio={raw_ratio:.4f} base_ratio={base_ratio:.4f} "
+              f"engagement={self.current_engagement:.3f}")
         return self.current_engagement
 
-    # Legacy compatibility properties
-    @property
-    def baseline_initialized(self) -> bool:
-        """For compatibility - true if we have enough data."""
-        return any(len(self.baseline_powers[band]) >= 3 for band in self._get_band_names())
-
-    @property
-    def baseline_collected(self) -> bool:
-        """For compatibility."""
-        return self.baseline_initialized
+    # ------------------------------------------------ utility getter
+    def get_current_engagement(self) -> float:
+        """Return the most recent engagement value."""
+        return self.current_engagement

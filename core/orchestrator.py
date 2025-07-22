@@ -186,26 +186,63 @@ class ConversationOrchestrator:
             self.logger.error(f"Initialization failed: {e}")
             return False
 
-    def _calculate_adaptive_reward(self, engagement_before, engagement_after, user_spoke, context_type):
-        # 1. Raw engagement delta (no normalization!)
+    def _calculate_adaptive_reward(
+            self,
+            engagement_before: float,
+            engagement_after: float,
+            tts_duration: float,
+            user_spoke: bool,
+            session_duration: float,
+            user_text: str,
+            assistant_text: str,
+            context_type: str = "normal",
+    ) -> float:
+        """Calculate reward using simple raw engagement delta (no normalization)."""
+
+        # 1. Raw engagement delta - no normalization!
         engagement_delta = engagement_after - engagement_before
 
-        # 2. Base reward is just the delta
-        reward = engagement_delta * 5.0  # Amplify to meaningful range
+        # 2. Base reward is amplified delta
+        reward = engagement_delta * 5.0  # Scale to meaningful range
 
-        # 3. Absolute engagement bonuses
+        # 3. Absolute engagement level bonuses
         if engagement_after > 0.7:
-            reward += 0.5  # High absolute engagement bonus
+            reward += 0.5  # High engagement bonus
         elif engagement_after > 0.5:
             reward += 0.2  # Medium engagement bonus
+        elif engagement_after > 0.4:
+            reward += 0.1  # Slight bonus for above-low
 
-        # 4. Penalties for low engagement
+        # 4. Absolute engagement penalties
         if engagement_after < 0.3:
-            reward -= 0.5
+            reward -= 0.5  # Low engagement penalty
+        elif engagement_after < 0.35:
+            reward -= 0.2  # Below-medium penalty
 
         # 5. User interaction bonus
         if user_spoke:
-            reward += 0.1
+            response_quality = self._assess_response_quality(user_text, assistant_text)
+            reward += 0.15 * response_quality
+
+        # 6. Context-specific bonuses (keep these)
+        if context_type == "auto_advance" and engagement_after > 0.6:
+            reward += 0.3
+        elif context_type == "cold_start" and engagement_after > 0.4:
+            reward += 0.2
+
+        # 7. Session progression (light multiplier)
+        progression_multiplier = min(1.0 + session_duration / 600, 1.2)  # Max 20% bonus
+        reward *= progression_multiplier
+
+        # 8. Final clipping
+        reward = np.clip(reward, -3.0, 3.0)
+
+        # Store delta for debugging (remove old normalization tracking)
+        if not hasattr(self, 'delta_history'):
+            self.delta_history = []
+        self.delta_history.append(engagement_delta)
+        if len(self.delta_history) > 20:
+            self.delta_history.pop(0)
 
         return reward
 

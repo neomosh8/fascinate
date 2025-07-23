@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 
 from config import EEG_SAMPLE_RATE
+from eeg.online_filter import OnlineFilter
 
 
 @dataclass
@@ -17,20 +18,20 @@ class FrequencyBands:
 
 class TurnBasedEngagementScorer:
     """
-    Engagement scorer with proper individualized baseline correction using z-scores.
-    Collects baseline during initial period, then normalizes all future measurements
-    relative to that user's personal baseline.
+    Engagement scorer using PROVEN filtering pipeline.
+    Now processes clean, filtered data instead of corrupted raw signals.
     """
 
     def __init__(self,
                  baseline_duration_sec: float = 30,
                  baseline_update_rate: float = 0.001,
-                 smoothing: float = 0.0,
-                 normalisation_mode: str = "z_score"  # Only z_score mode now
-                 ):
+                 smoothing: float = 0.0):
 
         self.bands = FrequencyBands()
-        self.filters = self._design_filters()
+
+        # Use the PROVEN filter instead of custom band filters
+        self.online_filter = OnlineFilter(EEG_SAMPLE_RATE)
+
         self.smoothing = smoothing
 
         # Baseline collection parameters
@@ -38,9 +39,9 @@ class TurnBasedEngagementScorer:
         self.baseline_update_rate = float(np.clip(baseline_update_rate, 0, 1))
         self._samples_needed = int(baseline_duration_sec * EEG_SAMPLE_RATE)
 
-        # Baseline data collection
+        # Baseline data collection (now using FILTERED data)
         self.baseline_chunks = {'alpha': [], 'beta': [], 'theta': [], 'delta': [], 'gamma': []}
-        self.baseline_stats = {}  # Will store {'mean': X, 'std': Y} for each band
+        self.baseline_stats = {}
         self.baseline_ready = False
 
         # Turn state
@@ -49,61 +50,50 @@ class TurnBasedEngagementScorer:
         self.turn_idx = 0
         self.current_engagement = 0.5
 
-        # Buffer for collecting baseline during initial period
+        # Buffer for collecting baseline during initial period (FILTERED data)
         self._baseline_buffer_ch1: List[float] = []
         self._baseline_buffer_ch2: List[float] = []
 
-    def _design_filters(self):
-        """Design bandpass filters for each frequency band."""
-        nyq = EEG_SAMPLE_RATE / 2
-        flts = {}
-        for name, (lo, hi) in self.bands.__dict__.items():
-            hi = min(hi, nyq * 0.95)
-            sos = signal.butter(4, [lo / nyq, hi / nyq], btype="band", output="sos")
-            flts[name] = sos
-        return flts
+    def add_eeg_chunk(self, ch1: List[float], ch2: List[float]):
+        """Add EEG data chunk with PROPER filtering applied first."""
 
-    def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
-        """Calculate band powers with raw signal diagnostics."""
+        # Convert to numpy arrays
+        ch1_array = np.array(ch1)
+        ch2_array = np.array(ch2)
 
-        # Check raw signal first
-        raw_stats = {
-            'ch1_raw_std': np.std(x),
-            'ch2_raw_std': np.std(y),
-            'ch1_raw_range': np.max(x) - np.min(x),
-            'ch2_raw_range': np.max(y) - np.min(y)
-        }
+        # Apply the PROVEN filter pipeline that worked in neocore_client.py
+        ch1_filtered, ch2_filtered = self.online_filter.filter_chunk(ch1_array, ch2_array)
 
-        out = {}
-        for name, sos in self.filters.items():
-            xf = signal.sosfilt(sos, x)
-            yf = signal.sosfilt(sos, y)
+        # Debug: Show the filtering effect
+        if len(ch1) > 0:
+            raw_range_ch1 = max(ch1) - min(ch1)
+            filtered_range_ch1 = np.max(ch1_filtered) - np.min(ch1_filtered)
+            if raw_range_ch1 > 1000:  # Only log when we see the extreme signals
+                print(f"🔧 FILTERING EFFECT: CH1 {raw_range_ch1:,.0f}µV → {filtered_range_ch1:.0f}µV")
 
-            # Calculate power
-            power = 0.5 * (np.mean(xf ** 2) + np.mean(yf ** 2))
-            out[name] = power
+        # Now collect baseline using FILTERED data (not raw!)
+        if not self.baseline_ready:
+            self._collect_baseline_chunk(ch1_filtered.tolist(), ch2_filtered.tolist())
 
-            # Debug filtering effect
-            if name == 'beta':  # Just check beta band as example
-                print(f"🎛️ {name} filtering: raw_std={raw_stats['ch1_raw_std']:,.0f}, filtered_power={power:,.0f}")
+        # Store turn data using FILTERED signals
+        if self.turn_active:
+            self.turn_data.extend(zip(ch1_filtered, ch2_filtered))
 
-        return out
-
-    def _collect_baseline_chunk(self, ch1: List[float], ch2: List[float]):
-        """Collect data for baseline calculation during initial period."""
+    def _collect_baseline_chunk(self, ch1_filtered: List[float], ch2_filtered: List[float]):
+        """Collect FILTERED data for baseline calculation."""
         if self.baseline_ready:
             return
 
-        # Add to baseline buffer
-        self._baseline_buffer_ch1.extend(ch1)
-        self._baseline_buffer_ch2.extend(ch2)
+        # Add FILTERED data to baseline buffer
+        self._baseline_buffer_ch1.extend(ch1_filtered)
+        self._baseline_buffer_ch2.extend(ch2_filtered)
 
-        # Check if we have enough data for baseline
+        # Check if we have enough FILTERED data for baseline
         if len(self._baseline_buffer_ch1) >= self._samples_needed:
             self._calculate_baseline()
 
     def _calculate_baseline(self):
-        """Calculate baseline statistics from collected data."""
+        """Calculate baseline statistics from FILTERED data."""
         # Convert to numpy arrays
         ch1_data = np.array(self._baseline_buffer_ch1[:self._samples_needed])
         ch2_data = np.array(self._baseline_buffer_ch2[:self._samples_needed])
@@ -112,7 +102,7 @@ class TurnBasedEngagementScorer:
         chunk_size = EEG_SAMPLE_RATE * 2  # 2-second chunks
         num_chunks = len(ch1_data) // chunk_size
 
-        # Calculate powers for each chunk
+        # Calculate powers for each chunk (data is already filtered!)
         for i in range(num_chunks):
             start_idx = i * chunk_size
             end_idx = start_idx + chunk_size
@@ -135,9 +125,6 @@ class TurnBasedEngagementScorer:
                 mean_power = np.mean(powers)
                 std_power = np.std(powers)
 
-                # Ensure minimum std (10% of mean) to avoid division by tiny numbers
-                std_power = std_power
-
                 self.baseline_stats[band] = {
                     'mean': mean_power,
                     'std': std_power
@@ -146,7 +133,7 @@ class TurnBasedEngagementScorer:
         self.baseline_ready = True
 
         # Print baseline info
-        print(f"\n✅ Baseline established from {len(self.baseline_chunks['alpha'])} chunks:")
+        print(f"\n✅ Baseline established from FILTERED data ({len(self.baseline_chunks['alpha'])} chunks):")
         for band, stats in self.baseline_stats.items():
             print(f"  {band:5s}: μ={stats['mean']:.2e}, σ={stats['std']:.2e}")
         print()
@@ -156,25 +143,8 @@ class TurnBasedEngagementScorer:
         self.turn_data = []
         self.turn_active = True
 
-    def add_eeg_chunk(self, ch1: List[float], ch2: List[float]):
-        """Add EEG data chunk with raw signal monitoring."""
-
-        if self.turn_active:
-            self.turn_data.extend(zip(ch1, ch2))
-
-            # Debug raw signal every 50 chunks
-            if len(self.turn_data):  # Every ~5 seconds at 250Hz
-                recent_ch1 = [x[0] for x in list(self.turn_data)[-1250:]]
-                recent_ch2 = [x[1] for x in list(self.turn_data)[-1250:]]
-
-                print(f"\n📡 RAW SIGNAL CHECK (last 5 seconds):")
-                print(f"  CH1: min={min(recent_ch1):,.0f}, max={max(recent_ch1):,.0f}, std={np.std(recent_ch1):,.0f}")
-                print(f"  CH2: min={min(recent_ch2):,.0f}, max={max(recent_ch2):,.0f}, std={np.std(recent_ch2):,.0f}")
-                print(f"  CH1 range: {max(recent_ch1) - min(recent_ch1):,.0f}")
-                print(f"  CH2 range: {max(recent_ch2) - min(recent_ch2):,.0f}")
-
     def end_turn(self, tts_duration: Optional[float] = None) -> float:
-        """Process turn using direct ratios (no baseline needed)."""
+        """Process turn using properly filtered data."""
 
         if not self.turn_active:
             return self.current_engagement
@@ -183,12 +153,15 @@ class TurnBasedEngagementScorer:
             self.turn_active = False
             return self.current_engagement
 
-        # Convert turn data to arrays
+        # Convert turn data to arrays (data is already filtered!)
         eeg = np.asarray(self.turn_data)
         ch1_data, ch2_data = eeg[:, 0], eeg[:, 1]
 
-        # Calculate engagement trajectory using direct ratios
-        engagement_trajectory = self._calculate_ratio_trajectory(ch1_data, ch2_data)
+        # Calculate engagement trajectory using CLEAN data
+        if self.baseline_ready:
+            engagement_trajectory = self._calculate_baseline_trajectory(ch1_data, ch2_data)
+        else:
+            engagement_trajectory = self._calculate_ratio_trajectory(ch1_data, ch2_data)
 
         # Aggregate trajectory into single score
         final_engagement = self._aggregate_trajectory(engagement_trajectory)
@@ -202,76 +175,32 @@ class TurnBasedEngagementScorer:
         self.turn_idx += 1
         self.turn_active = False
 
-        print(f"\n[Turn {self.turn_idx}] Direct ratio → final={self.current_engagement:.3f}")
+        print(f"\n[Turn {self.turn_idx}] Clean filtered data → engagement={self.current_engagement:.3f}")
         return self.current_engagement
 
-    def _calculate_engagement_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
-        """Calculate engagement over time using sliding windows."""
+    def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        """Calculate band powers from ALREADY FILTERED data."""
+        nyq = EEG_SAMPLE_RATE / 2
+        out = {}
 
-        # Window parameters
-        window_size = int(2.0 * EEG_SAMPLE_RATE)  # 2-second windows
-        overlap = int(0.5 * EEG_SAMPLE_RATE)  # 0.5-second overlap
-        step_size = window_size - overlap  # 1.5-second steps
+        for name, (lo, hi) in self.bands.__dict__.items():
+            hi = min(hi, nyq * 0.95)
 
-        engagement_values = []
+            # Design band-specific filter (lighter, since data is already clean)
+            sos = signal.butter(2, [lo / nyq, hi / nyq], btype="band", output="sos")
 
-        # Slide window across the entire epoch
-        for start_idx in range(0, len(ch1_data) - window_size + 1, step_size):
-            end_idx = start_idx + window_size
+            # Apply to already-filtered data
+            xf = signal.sosfilt(sos, x)
+            yf = signal.sosfilt(sos, y)
 
-            # Extract window
-            window_ch1 = ch1_data[start_idx:end_idx]
-            window_ch2 = ch2_data[start_idx:end_idx]
+            # Calculate power
+            power = 0.5 * (np.mean(xf ** 2) + np.mean(yf ** 2))
+            out[name] = power
 
-            # Calculate powers for this window
-            window_powers = self._band_powers(window_ch1, window_ch2)
+        return out
 
-            # Calculate z-scores for this window
-            z_scores = {}
-            for band in ['alpha', 'beta', 'theta']:
-                if band in self.baseline_stats:
-                    baseline_mean = self.baseline_stats[band]['mean']
-                    baseline_std = self.baseline_stats[band]['std']
-                    z_scores[band] = (window_powers[band] - baseline_mean) / baseline_std
-                else:
-                    z_scores[band] = 0.0
-
-            # Calculate engagement for this window
-            window_engagement = self._calculate_engagement_from_z_scores(z_scores)
-            engagement_values.append(window_engagement)
-
-        return np.array(engagement_values)
-
-    def _aggregate_trajectory(self, trajectory: np.ndarray) -> float:
-        """Simple trajectory aggregation for direct ratios."""
-
-        if len(trajectory) == 0:
-            return 0.5
-        if len(trajectory) == 1:
-            return trajectory[0]
-
-        # For direct ratios, just use weighted average with trend bonus
-        # More weight to recent values
-        weights = np.linspace(0.5, 1.5, len(trajectory))
-        weighted_avg = np.average(trajectory, weights=weights)
-
-        # Add small trend bonus
-        if len(trajectory) >= 3:
-            trend = trajectory[-1] - trajectory[0]
-            trend_bonus = trend * 0.1  # Small bonus for positive trends
-        else:
-            trend_bonus = 0
-
-        final_score = weighted_avg + trend_bonus
-
-        print(
-            f"🔍 Trajectory: {len(trajectory)} windows, avg={np.mean(trajectory):.3f}, weighted={weighted_avg:.3f}, final={final_score:.3f}")
-
-        return np.clip(final_score, 0.1, 0.9)
-
-    def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
-        """Calculate engagement over time using direct ratios."""
-
+    def _calculate_baseline_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
+        """Calculate engagement using baseline-normalized approach."""
         # Window parameters
         window_size = int(2.0 * EEG_SAMPLE_RATE)  # 2-second windows
         overlap = int(0.5 * EEG_SAMPLE_RATE)  # 0.5-second overlap
@@ -290,7 +219,51 @@ class TurnBasedEngagementScorer:
             # Calculate powers for this window
             window_powers = self._band_powers(window_ch1, window_ch2)
 
-            # Calculate engagement using direct ratios
+            # Calculate z-scores using baseline
+            z_scores = {}
+            for band in ['alpha', 'beta', 'theta']:
+                if band in self.baseline_stats:
+                    baseline_mean = self.baseline_stats[band]['mean']
+                    baseline_std = self.baseline_stats[band]['std']
+                    z_scores[band] = (window_powers[band] - baseline_mean) / baseline_std
+                else:
+                    z_scores[band] = 0.0
+
+            # Calculate engagement from z-scores
+            window_engagement = self._calculate_engagement_from_z_scores(z_scores)
+            engagement_values.append(window_engagement)
+
+        return np.array(engagement_values)
+
+    def _calculate_engagement_from_z_scores(self, z_scores: Dict[str, float]) -> float:
+        """Calculate engagement from baseline-normalized z-scores."""
+        alpha_z = z_scores.get('alpha', 0.0)
+        beta_z = z_scores.get('beta', 0.0)
+        theta_z = z_scores.get('theta', 0.0)
+
+        # Engagement: high beta, low alpha (classic pattern)
+        engagement_score = beta_z - 0.5 * alpha_z + 0.2 * theta_z
+
+        # Normalize to [0,1] range
+        normalized = 1 / (1 + np.exp(-engagement_score))  # Sigmoid
+
+        return np.clip(normalized, 0.1, 0.9)
+
+    def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
+        """Calculate engagement over time using direct ratios (fallback)."""
+        window_size = int(2.0 * EEG_SAMPLE_RATE)
+        overlap = int(0.5 * EEG_SAMPLE_RATE)
+        step_size = window_size - overlap
+
+        engagement_values = []
+
+        for start_idx in range(0, len(ch1_data) - window_size + 1, step_size):
+            end_idx = start_idx + window_size
+
+            window_ch1 = ch1_data[start_idx:end_idx]
+            window_ch2 = ch2_data[start_idx:end_idx]
+
+            window_powers = self._band_powers(window_ch1, window_ch2)
             window_engagement = self._calculate_engagement_from_ratios(window_powers)
             engagement_values.append(window_engagement)
 
@@ -298,66 +271,51 @@ class TurnBasedEngagementScorer:
 
     def _calculate_engagement_from_ratios(self, powers: Dict[str, float]) -> float:
         """Calculate engagement using direct band power ratios."""
-
-        # Debug: Print what we're getting
-        print(f"🔍 Powers received: {powers}")
-
-        # Get raw powers
         alpha = powers.get('alpha', 1.0)
         beta = powers.get('beta', 1.0)
         theta = powers.get('theta', 1.0)
-
-        print(f"🔍 Alpha: {alpha}, Beta: {beta}, Theta: {theta}")
 
         # Classic engagement ratio: Beta / (Alpha + Theta)
         denominator = alpha + theta
         if denominator > 0:
             engagement_ratio = beta / denominator
-            print(f"🔍 Ratio: {beta}/{denominator} = {engagement_ratio}")
         else:
-            engagement_ratio = 1.0  # Fallback
-            print(f"🔍 Using fallback ratio: {engagement_ratio}")
+            engagement_ratio = 1.0
 
-        # Normalize to [0,1] range using tanh
+        # Normalize to [0,1] range
         normalized = np.tanh(engagement_ratio - 0.5) * 0.3 + 0.5
-        print(f"🔍 Normalized: {normalized}")
+        return np.clip(normalized, 0.1, 0.9)
 
-        result = np.clip(normalized, 0.1, 0.9)
-        print(f"🔍 Final result: {result}")
+    def _aggregate_trajectory(self, trajectory: np.ndarray) -> float:
+        """Aggregate engagement trajectory into single score."""
+        if len(trajectory) == 0:
+            return 0.5
+        if len(trajectory) == 1:
+            return trajectory[0]
 
-        return result
+        # Weighted average with more weight to recent values
+        weights = np.linspace(0.5, 1.5, len(trajectory))
+        weighted_avg = np.average(trajectory, weights=weights)
 
-    def _update_baseline(self, current_powers: Dict[str, float]):
-        """Slowly adapt baseline to account for session-long changes."""
-        if not self.baseline_ready:
-            return
+        # Add small trend bonus
+        if len(trajectory) >= 3:
+            trend = trajectory[-1] - trajectory[0]
+            trend_bonus = trend * 0.1
+        else:
+            trend_bonus = 0
 
-        for band in ['alpha', 'beta', 'theta', 'delta', 'gamma']:
-            if band in self.baseline_stats and band in current_powers:
-                # Update mean with exponential moving average
-                old_mean = self.baseline_stats[band]['mean']
-                new_power = current_powers[band]
-                updated_mean = ((1 - self.baseline_update_rate) * old_mean +
-                                self.baseline_update_rate * new_power)
-
-                # Update std more conservatively
-                old_std = self.baseline_stats[band]['std']
-                power_deviation = abs(new_power - old_mean)
-                updated_std = ((1 - self.baseline_update_rate * 0.1) * old_std +
-                               self.baseline_update_rate * 0.1 * power_deviation)
-
-                # Ensure minimum std
-                min_std = updated_mean * 0.1
-                updated_std = max(updated_std, min_std)
-
-                self.baseline_stats[band]['mean'] = updated_mean
-                self.baseline_stats[band]['std'] = updated_std
+        final_score = weighted_avg + trend_bonus
+        return np.clip(final_score, 0.1, 0.9)
 
     @property
     def baseline_collected(self) -> bool:
-        """Compatibility property - always True for direct ratios."""
-        return True  # No baseline needed
+        """Return baseline collection status."""
+        return self.baseline_ready
 
     def get_current_engagement(self) -> float:
         """Return the most recent engagement value."""
         return self.current_engagement
+
+    def get_filter_info(self) -> dict:
+        """Get information about the filtering being used."""
+        return self.online_filter.get_filter_info()

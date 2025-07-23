@@ -7,6 +7,7 @@ import time
 import random
 import numpy as np
 from scipy.fft import fft, fftfreq
+from scipy import signal
 from collections import deque
 from typing import Optional, List, Dict, Tuple
 import re
@@ -14,7 +15,12 @@ import asyncio
 import threading
 import queue
 
-from config import WINDOW_WIDTH, WINDOW_HEIGHT
+from config import (
+    WINDOW_WIDTH,
+    WINDOW_HEIGHT,
+    EEG_SAMPLE_RATE,
+    BETA_BAND,
+)
 from core.orchestrator import ConversationOrchestrator
 from ui.bandit_visualizer import BanditVisualizationDashboard
 
@@ -86,6 +92,92 @@ class EngagementWidget:
         )
 
         # Blit to main screen
+        screen.blit(self.surface, self.rect)
+
+
+class EEGPlotWidget:
+    """Realtime plot of raw or filtered EEG signal."""
+
+    def __init__(self, x: int, y: int, width: int, height: int):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        self.raw_ch1 = deque(maxlen=EEG_SAMPLE_RATE * 3)
+        self.raw_ch2 = deque(maxlen=EEG_SAMPLE_RATE * 3)
+        self.filt_ch1 = deque(maxlen=EEG_SAMPLE_RATE * 3)
+        self.filt_ch2 = deque(maxlen=EEG_SAMPLE_RATE * 3)
+
+        nyq = EEG_SAMPLE_RATE / 2
+        sos = signal.butter(
+            4,
+            [BETA_BAND[0] / nyq, BETA_BAND[1] / nyq],
+            btype="band",
+            output="sos",
+        )
+        self.sos = sos
+        self.zi_ch1 = signal.sosfilt_zi(sos)
+        self.zi_ch2 = signal.sosfilt_zi(sos)
+
+        self.visible = False
+        self.mode = "raw"  # 'raw' or 'filtered'
+
+    def add_data(self, ch1: List[float], ch2: List[float]):
+        self.raw_ch1.extend(ch1)
+        self.raw_ch2.extend(ch2)
+
+        ch1_arr = np.array(ch1)
+        ch2_arr = np.array(ch2)
+        filt1, self.zi_ch1 = signal.sosfilt(self.sos, ch1_arr, zi=self.zi_ch1)
+        filt2, self.zi_ch2 = signal.sosfilt(self.sos, ch2_arr, zi=self.zi_ch2)
+        self.filt_ch1.extend(filt1)
+        self.filt_ch2.extend(filt2)
+
+    def draw(self, screen: pygame.Surface):
+        if not self.visible:
+            return
+
+        self.surface.fill((0, 0, 0, 180))
+        data1 = (
+            list(self.raw_ch1)
+            if self.mode == "raw"
+            else list(self.filt_ch1)
+        )
+        data2 = (
+            list(self.raw_ch2)
+            if self.mode == "raw"
+            else list(self.filt_ch2)
+        )
+
+        if len(data1) < 2:
+            screen.blit(self.surface, self.rect)
+            return
+
+        max_val = max(
+            max(np.abs(data1)) if data1 else 1,
+            max(np.abs(data2)) if data2 else 1,
+            1,
+        )
+
+        step = max(1, len(data1) // self.rect.width)
+        points1 = []
+        points2 = []
+        for i in range(0, len(data1), step):
+            x = int(i / len(data1) * self.rect.width)
+            y1 = int(self.rect.height / 2 - (data1[i] / max_val) * (self.rect.height / 2))
+            y2 = int(self.rect.height / 2 - (data2[i] / max_val) * (self.rect.height / 2))
+            points1.append((x, y1))
+            points2.append((x, y2))
+
+        if len(points1) > 1:
+            pygame.draw.lines(self.surface, (0, 255, 0), False, points1, 1)
+        if len(points2) > 1:
+            pygame.draw.lines(self.surface, (255, 0, 0), False, points2, 1)
+
+        label = "RAW" if self.mode == "raw" else "FILTERED"
+        font = pygame.freetype.Font(None, 14)
+        font.render_to(self.surface, (5, 5), label, (200, 200, 200))
+
+        pygame.draw.rect(self.surface, (180, 255, 180), self.surface.get_rect(), 1)
+
         screen.blit(self.surface, self.rect)
 
 
@@ -352,6 +444,7 @@ class PygameConversationUI:
         # UI Components
         self.sphere = SphereVisualization(self.screen_width // 2, 250)
         self.engagement_widget = EngagementWidget(self.screen_width - 220, 20, 200, 120)
+        self.eeg_widget = EEGPlotWidget(20, 20, 300, 120)
 
         # Bandit visualization dashboard
         self.bandit_dashboard = BanditVisualizationDashboard(self.screen_width, self.screen_height)
@@ -383,6 +476,7 @@ class PygameConversationUI:
             'update_transcript': self._queue_transcript_update,
             'update_countdown': self._queue_countdown_update,
             'update_strategy': self._queue_strategy_update,
+            'update_eeg': self._queue_eeg_update,
         }
 
         # Audio management
@@ -430,6 +524,10 @@ class PygameConversationUI:
     def _queue_strategy_update(self, data):
         """Queue strategy update for visualization."""
         self.update_queue.put(('strategy_update', data))
+
+    def _queue_eeg_update(self, data):
+        """Queue raw EEG samples for plotting."""
+        self.update_queue.put(('eeg', data))
 
     def extract_words_from_text(self, text: str) -> List[str]:
         """Extract interesting words from AI response."""
@@ -572,6 +670,18 @@ class PygameConversationUI:
                         self.handle_speak_button_press()
                 elif event.key == pygame.K_TAB:
                     self.show_dashboard = not self.show_dashboard
+                elif event.key == pygame.K_p:
+                    if self.eeg_widget.visible and self.eeg_widget.mode == "raw":
+                        self.eeg_widget.visible = False
+                    else:
+                        self.eeg_widget.mode = "raw"
+                        self.eeg_widget.visible = True
+                elif event.key == pygame.K_f:
+                    if self.eeg_widget.visible and self.eeg_widget.mode == "filtered":
+                        self.eeg_widget.visible = False
+                    else:
+                        self.eeg_widget.mode = "filtered"
+                        self.eeg_widget.visible = True
 
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_SPACE:
@@ -644,6 +754,10 @@ class PygameConversationUI:
                         if reward is not None:
                             print(f"Dashboard updated: {strategy.tone} with reward {reward:.3f}")
 
+                elif update_type == 'eeg':
+                    ch1, ch2 = data
+                    self.eeg_widget.add_data(ch1, ch2)
+
         except queue.Empty:
             pass
 
@@ -707,6 +821,7 @@ class PygameConversationUI:
 
         # Draw engagement widget
         self.engagement_widget.draw(self.screen)
+        self.eeg_widget.draw(self.screen)
 
         # Draw messages
         for message in self.messages:

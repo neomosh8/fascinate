@@ -327,7 +327,7 @@ class ConversationOrchestrator:
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
-        assistant_text = await self.gpt.generate_response(user_text, strategy)
+        assistant_text = await self.gpt.generate_response(user_text, strategy, turn_count=self.turn_count + 1 )
 
         if "update_transcript" in self.ui_callbacks:
             self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")

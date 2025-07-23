@@ -4,6 +4,7 @@ import asyncio
 from typing import List, Dict, Optional
 from openai import OpenAI
 
+from config import calculate_dynamic_tokens
 from config import GPT_MODEL, MAX_GPT_TOKENS
 from rl.strategy import Strategy
 
@@ -18,8 +19,12 @@ class GPTConversation:
     async def generate_response(self,
                                 user_input: str,
                                 strategy: Strategy,
+                                turn_count: int = 1,  # Add turn_count parameter
                                 additional_context: Optional[str] = None) -> str:
-        """Generate assistant response with given strategy."""
+        """Generate assistant response with given strategy and dynamic token limit."""
+
+        # Calculate dynamic token limit
+        max_tokens = calculate_dynamic_tokens(turn_count)
 
         # Build messages
         messages = []
@@ -29,8 +34,9 @@ class GPTConversation:
             "role": "system",
             "content": f"""
 {strategy.to_prompt_with_memory()}
-Keep responses concise .
-put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""
+Keep responses concise but allow for more detail as conversation progresses.
+Current turn: {turn_count}, Token limit: {max_tokens}
+Put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""
         })
 
         # Add conversation history (keep last 5 turns for context)
@@ -54,7 +60,7 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
                 "content": "[User remained silent, that's okay, continue]"
             })
 
-        # Generate response
+        # Generate response with dynamic token limit
         try:
             loop = asyncio.get_event_loop()
 
@@ -62,7 +68,7 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
                 return self.client.chat.completions.create(
                     model=GPT_MODEL,
                     messages=messages,
-                    max_tokens=MAX_GPT_TOKENS,
+                    max_tokens=max_tokens,  # Use dynamic token limit
                     temperature=0.8
                 )
 
@@ -75,6 +81,10 @@ put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] 
                 "role": "assistant",
                 "content": response
             })
+
+            # Optional: Log token usage for debugging
+            print(f"Turn {turn_count}: Used {max_tokens} max tokens")
+
             return response
 
         except Exception as e:

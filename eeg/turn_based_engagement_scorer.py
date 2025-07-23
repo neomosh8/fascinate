@@ -64,13 +64,29 @@ class TurnBasedEngagementScorer:
         return flts
 
     def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
-        """Calculate power in each frequency band for both channels."""
+        """Calculate band powers with raw signal diagnostics."""
+
+        # Check raw signal first
+        raw_stats = {
+            'ch1_raw_std': np.std(x),
+            'ch2_raw_std': np.std(y),
+            'ch1_raw_range': np.max(x) - np.min(x),
+            'ch2_raw_range': np.max(y) - np.min(y)
+        }
+
         out = {}
         for name, sos in self.filters.items():
             xf = signal.sosfilt(sos, x)
             yf = signal.sosfilt(sos, y)
-            # Average power across both channels
-            out[name] = 0.5 * (np.mean(xf ** 2) + np.mean(yf ** 2))
+
+            # Calculate power
+            power = 0.5 * (np.mean(xf ** 2) + np.mean(yf ** 2))
+            out[name] = power
+
+            # Debug filtering effect
+            if name == 'beta':  # Just check beta band as example
+                print(f"🎛️ {name} filtering: raw_std={raw_stats['ch1_raw_std']:,.0f}, filtered_power={power:,.0f}")
+
         return out
 
     def _collect_baseline_chunk(self, ch1: List[float], ch2: List[float]):
@@ -120,8 +136,7 @@ class TurnBasedEngagementScorer:
                 std_power = np.std(powers)
 
                 # Ensure minimum std (10% of mean) to avoid division by tiny numbers
-                min_std = mean_power * 0.1
-                std_power = max(std_power, min_std)
+                std_power = std_power
 
                 self.baseline_stats[band] = {
                     'mean': mean_power,
@@ -142,18 +157,26 @@ class TurnBasedEngagementScorer:
         self.turn_active = True
 
     def add_eeg_chunk(self, ch1: List[float], ch2: List[float]):
-        """Add EEG data chunk - either for baseline or current turn."""
-        if not self.baseline_ready:
-            # Still collecting baseline
-            self._collect_baseline_chunk(ch1, ch2)
-        elif self.turn_active:
-            # Collecting turn data
+        """Add EEG data chunk with raw signal monitoring."""
+
+        if self.turn_active:
             self.turn_data.extend(zip(ch1, ch2))
 
+            # Debug raw signal every 50 chunks
+            if len(self.turn_data):  # Every ~5 seconds at 250Hz
+                recent_ch1 = [x[0] for x in list(self.turn_data)[-1250:]]
+                recent_ch2 = [x[1] for x in list(self.turn_data)[-1250:]]
+
+                print(f"\n📡 RAW SIGNAL CHECK (last 5 seconds):")
+                print(f"  CH1: min={min(recent_ch1):,.0f}, max={max(recent_ch1):,.0f}, std={np.std(recent_ch1):,.0f}")
+                print(f"  CH2: min={min(recent_ch2):,.0f}, max={max(recent_ch2):,.0f}, std={np.std(recent_ch2):,.0f}")
+                print(f"  CH1 range: {max(recent_ch1) - min(recent_ch1):,.0f}")
+                print(f"  CH2 range: {max(recent_ch2) - min(recent_ch2):,.0f}")
+
     def end_turn(self, tts_duration: Optional[float] = None) -> float:
-        """Process turn with temporal dynamics analysis."""
-        if not self.turn_active or not self.baseline_ready:
-            self.turn_active = False
+        """Process turn using direct ratios (no baseline needed)."""
+
+        if not self.turn_active:
             return self.current_engagement
 
         if len(self.turn_data) < 500:  # Need minimum data
@@ -164,30 +187,22 @@ class TurnBasedEngagementScorer:
         eeg = np.asarray(self.turn_data)
         ch1_data, ch2_data = eeg[:, 0], eeg[:, 1]
 
-        # 🎯 NEW: Windowed analysis instead of single mean
-        engagement_trajectory = self._calculate_engagement_trajectory(ch1_data, ch2_data)
+        # Calculate engagement trajectory using direct ratios
+        engagement_trajectory = self._calculate_ratio_trajectory(ch1_data, ch2_data)
 
-        # Aggregate trajectory into single score with temporal awareness
+        # Aggregate trajectory into single score
         final_engagement = self._aggregate_trajectory(engagement_trajectory)
 
-        # Apply smoothing and update
+        # Apply smoothing if needed
         if self.smoothing > 0:
             final_engagement = (self.smoothing * final_engagement +
                                 (1 - self.smoothing) * self.current_engagement)
 
-        self.current_engagement = max(0, min(1, final_engagement))
-
-        # Update baseline
-        current_powers = self._band_powers(ch1_data, ch2_data)
-        self._update_baseline(current_powers)
-
+        self.current_engagement = np.clip(final_engagement, 0.0, 1.0)
         self.turn_idx += 1
         self.turn_active = False
 
-        # Debug output with trajectory info
-        traj_info = f"peak={np.max(engagement_trajectory):.3f}, trend={engagement_trajectory[-1] - engagement_trajectory[0]:+.3f}"
-        print(f"\n[Turn {self.turn_idx}] Trajectory: {traj_info} → final={self.current_engagement:.3f}")
-
+        print(f"\n[Turn {self.turn_idx}] Direct ratio → final={self.current_engagement:.3f}")
         return self.current_engagement
 
     def _calculate_engagement_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
@@ -228,78 +243,89 @@ class TurnBasedEngagementScorer:
         return np.array(engagement_values)
 
     def _aggregate_trajectory(self, trajectory: np.ndarray) -> float:
-        """Aggregate engagement trajectory into single score with temporal awareness."""
+        """Simple trajectory aggregation for direct ratios."""
 
         if len(trajectory) == 0:
             return 0.5
-
         if len(trajectory) == 1:
             return trajectory[0]
 
-        # Multiple aggregation strategies - choose based on what matters most
-
-        # Strategy 1: Weighted average (more weight to recent)
-        weights = np.linspace(0.5, 1.5, len(trajectory))  # More weight to end
+        # For direct ratios, just use weighted average with trend bonus
+        # More weight to recent values
+        weights = np.linspace(0.5, 1.5, len(trajectory))
         weighted_avg = np.average(trajectory, weights=weights)
 
-        # Strategy 2: Peak engagement (reward high moments)
-        peak_engagement = np.max(trajectory)
-
-        # Strategy 3: Final vs initial (trend matters)
+        # Add small trend bonus
         if len(trajectory) >= 3:
-            trend = trajectory[-1] - trajectory[0]  # Positive = improving
+            trend = trajectory[-1] - trajectory[0]
+            trend_bonus = trend * 0.1  # Small bonus for positive trends
         else:
-            trend = 0
+            trend_bonus = 0
 
-        # Strategy 4: Stability (consistent engagement is good)
-        stability = 1.0 - np.std(trajectory)  # High stability = low variance
-        stability = max(0, stability)
+        final_score = weighted_avg + trend_bonus
 
-        # Strategy 5: 75th percentile (most of the time was good)
-        percentile_75 = np.percentile(trajectory, 75)
+        print(
+            f"🔍 Trajectory: {len(trajectory)} windows, avg={np.mean(trajectory):.3f}, weighted={weighted_avg:.3f}, final={final_score:.3f}")
 
-        # 🎯 Combine strategies (you can tune these weights)
-        final_score = (
-                0.3 * weighted_avg +  # Moderate weight to overall average
-                0.1 * peak_engagement +  # Small bonus for high moments
-                0.4 * max(0, trend * 5) +  # BIG bonus for positive trends (×5 amplification)
-                0.2 * percentile_75  # Sustained good performance
-            # Note: removed stability weight to focus more on building engagement
-        )
+        return np.clip(final_score, 0.1, 0.9)
 
-        return np.clip(final_score, 0, 1)
+    def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
+        """Calculate engagement over time using direct ratios."""
 
-    def _calculate_engagement_from_z_scores(self, z_scores: Dict[str, float]) -> float:
-        """Calculate engagement score from z-scored band powers with proper sensitivity."""
+        # Window parameters
+        window_size = int(2.0 * EEG_SAMPLE_RATE)  # 2-second windows
+        overlap = int(0.5 * EEG_SAMPLE_RATE)  # 0.5-second overlap
+        step_size = window_size - overlap
 
-        z_alpha = z_scores.get('alpha', 0.0)
-        z_beta = z_scores.get('beta', 0.0)
-        z_theta = z_scores.get('theta', 0.0)
+        engagement_values = []
 
-        # Method: Linear combination approach (more interpretable and sensitive)
-        # High engagement = high beta + low alpha + low theta (relative to baseline)
+        # Slide window across the entire epoch
+        for start_idx in range(0, len(ch1_data) - window_size + 1, step_size):
+            end_idx = start_idx + window_size
 
-        # Weights based on EEG literature
-        beta_weight = 1.0  # Beta up = good
-        alpha_weight = -0.5  # Alpha down = good (attention)
-        theta_weight = -0.3  # Theta down = good (but less weight)
+            # Extract window
+            window_ch1 = ch1_data[start_idx:end_idx]
+            window_ch2 = ch2_data[start_idx:end_idx]
 
-        # Calculate raw engagement score
-        engagement_raw = (beta_weight * z_beta +
-                          alpha_weight * z_alpha +
-                          theta_weight * z_theta)
+            # Calculate powers for this window
+            window_powers = self._band_powers(window_ch1, window_ch2)
 
-        # Alternative: Traditional ratio but with proper handling
-        # ratio_raw = z_beta - 0.5 * (z_alpha + z_theta)  # Beta high, alpha+theta low
+            # Calculate engagement using direct ratios
+            window_engagement = self._calculate_engagement_from_ratios(window_powers)
+            engagement_values.append(window_engagement)
 
-        # More sensitive normalization - don't compress as much
-        # Map from roughly [-6, +6] range to [0, 1]
-        engagement_normalized = engagement_raw / 12.0 + 0.5
+        return np.array(engagement_values)
 
-        # Clip to valid range
-        engagement = np.clip(engagement_normalized, 0.0, 1.0)
+    def _calculate_engagement_from_ratios(self, powers: Dict[str, float]) -> float:
+        """Calculate engagement using direct band power ratios."""
 
-        return engagement
+        # Debug: Print what we're getting
+        print(f"🔍 Powers received: {powers}")
+
+        # Get raw powers
+        alpha = powers.get('alpha', 1.0)
+        beta = powers.get('beta', 1.0)
+        theta = powers.get('theta', 1.0)
+
+        print(f"🔍 Alpha: {alpha}, Beta: {beta}, Theta: {theta}")
+
+        # Classic engagement ratio: Beta / (Alpha + Theta)
+        denominator = alpha + theta
+        if denominator > 0:
+            engagement_ratio = beta / denominator
+            print(f"🔍 Ratio: {beta}/{denominator} = {engagement_ratio}")
+        else:
+            engagement_ratio = 1.0  # Fallback
+            print(f"🔍 Using fallback ratio: {engagement_ratio}")
+
+        # Normalize to [0,1] range using tanh
+        normalized = np.tanh(engagement_ratio - 0.5) * 0.3 + 0.5
+        print(f"🔍 Normalized: {normalized}")
+
+        result = np.clip(normalized, 0.1, 0.9)
+        print(f"🔍 Final result: {result}")
+
+        return result
 
     def _update_baseline(self, current_powers: Dict[str, float]):
         """Slowly adapt baseline to account for session-long changes."""
@@ -329,8 +355,8 @@ class TurnBasedEngagementScorer:
 
     @property
     def baseline_collected(self) -> bool:
-        """Compatibility property for old interface."""
-        return self.baseline_ready
+        """Compatibility property - always True for direct ratios."""
+        return True  # No baseline needed
 
     def get_current_engagement(self) -> float:
         """Return the most recent engagement value."""

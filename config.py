@@ -53,8 +53,13 @@ AUDIO_CHUNK_SIZE = 1024
 MAX_RECORDING_DURATION = 30  # seconds
 
 # Token limits
-MAX_GPT_TOKENS = 20
+# Token limits - Dynamic scaling
+MIN_GPT_TOKENS = 15        # Minimum tokens during warmup
+MAX_GPT_TOKENS = 100       # Maximum tokens after full ramp-up
+WARMUP_TURNS = 10         # Turns to stay at minimum
+MAX_TURN = 25             # Turn where maximum is reached
 MAX_CONVERSATION_TURNS = 100
+
 
 # Auto-advance timeout
 AUTO_ADVANCE_TIMEOUT_SEC = 5  # seconds to wait before auto advancing
@@ -68,3 +73,14 @@ class ContextualBanditConfig:
     max_strategy_memory: int = 100
     min_experience_threshold: int = 3
     similarity_top_k: int = 5
+def calculate_dynamic_tokens(turn_count: int) -> int:
+    """Calculate dynamic token limit based on turn count."""
+    if turn_count <= WARMUP_TURNS:
+        return MIN_GPT_TOKENS
+    elif turn_count >= MAX_TURN:
+        return MAX_GPT_TOKENS
+    else:
+        # Linear interpolation between min and max
+        progress = (turn_count - WARMUP_TURNS) / (MAX_TURN - WARMUP_TURNS)
+        token_range = MAX_GPT_TOKENS - MIN_GPT_TOKENS
+        return int(MIN_GPT_TOKENS + (progress * token_range))

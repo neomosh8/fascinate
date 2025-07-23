@@ -93,49 +93,39 @@ class TurnBasedEngagementScorer:
             self._calculate_baseline()
 
     def _calculate_baseline(self):
-        """Calculate baseline statistics from FILTERED data."""
-        # Convert to numpy arrays
-        ch1_data = np.array(self._baseline_buffer_ch1[:self._samples_needed])
-        ch2_data = np.array(self._baseline_buffer_ch2[:self._samples_needed])
+        """Calculate baseline statistics from FILTERED data with
+        log‑power transform and 10 % outlier trimming."""
+        ch1 = np.asarray(self._baseline_buffer_ch1[: self._samples_needed])
+        ch2 = np.asarray(self._baseline_buffer_ch2[: self._samples_needed])
 
-        # Split into chunks for statistical robustness
-        chunk_size = EEG_SAMPLE_RATE * 2  # 2-second chunks
-        num_chunks = len(ch1_data) // chunk_size
+        chunk_size = EEG_SAMPLE_RATE * 2  # 2 s
+        num_chunks = len(ch1) // chunk_size
 
-        # Calculate powers for each chunk (data is already filtered!)
+        # Collect log‑powers for each band per 2 s chunk
         for i in range(num_chunks):
-            start_idx = i * chunk_size
-            end_idx = start_idx + chunk_size
+            s = i * chunk_size
+            e = s + chunk_size
+            powers = self._band_powers(ch1[s:e], ch2[s:e])
 
-            chunk_ch1 = ch1_data[start_idx:end_idx]
-            chunk_ch2 = ch2_data[start_idx:end_idx]
+            for band, p in powers.items():
+                # log power to curb heavy tails
+                self.baseline_chunks[band].append(np.log(p + 1e-12))
 
-            if len(chunk_ch1) >= chunk_size:  # Full chunk
-                chunk_powers = self._band_powers(chunk_ch1, chunk_ch2)
-
-                # Store powers for each band
-                for band in ['alpha', 'beta', 'theta', 'delta', 'gamma']:
-                    self.baseline_chunks[band].append(chunk_powers[band])
-
-        # Calculate mean and std for each band
+        # Compute trimmed mean / std (drop top and bottom 10 %)
         self.baseline_stats = {}
-        for band in ['alpha', 'beta', 'theta', 'delta', 'gamma']:
-            if len(self.baseline_chunks[band]) > 0:
-                powers = np.array(self.baseline_chunks[band])
-                mean_power = np.mean(powers)
-                std_power = np.std(powers)
-
-                self.baseline_stats[band] = {
-                    'mean': mean_power,
-                    'std': std_power
-                }
+        for band, arr in self.baseline_chunks.items():
+            data = np.sort(np.asarray(arr))
+            trim = max(1, int(0.10 * len(data)))
+            core = data[trim:-trim] if len(data) > 2 * trim else data
+            self.baseline_stats[band] = {
+                "mean": np.mean(core),
+                "std": np.std(core) + 1e-12,  # avoid div‑by‑zero
+            }
 
         self.baseline_ready = True
-
-        # Print baseline info
-        print(f"\n✅ Baseline established from FILTERED data ({len(self.baseline_chunks['alpha'])} chunks):")
-        for band, stats in self.baseline_stats.items():
-            print(f"  {band:5s}: μ={stats['mean']:.2e}, σ={stats['std']:.2e}")
+        print("\n✅ Baseline established:")
+        for b, s in self.baseline_stats.items():
+            print(f"  {b:5s}: μ={s['mean']:.2e}, σ={s['std']:.2e}")
         print()
 
     def start_turn(self):
@@ -143,39 +133,45 @@ class TurnBasedEngagementScorer:
         self.turn_data = []
         self.turn_active = True
 
+    # ------------------------------------------------------------------
+    # 3.  Adaptive baseline update called at the end of every turn
+    # ------------------------------------------------------------------
     def end_turn(self, tts_duration: Optional[float] = None) -> float:
-        """Process turn using properly filtered data."""
-
         if not self.turn_active:
             return self.current_engagement
-
-        if len(self.turn_data) < 500:  # Need minimum data
+        if len(self.turn_data) < 500:
             self.turn_active = False
             return self.current_engagement
 
-        # Convert turn data to arrays (data is already filtered!)
         eeg = np.asarray(self.turn_data)
-        ch1_data, ch2_data = eeg[:, 0], eeg[:, 1]
+        ch1 = eeg[:, 0]
+        ch2 = eeg[:, 1]
 
-        # Calculate engagement trajectory using CLEAN data
+        # Engagement trajectory
         if self.baseline_ready:
-            engagement_trajectory = self._calculate_baseline_trajectory(ch1_data, ch2_data)
+            traj = self._calculate_baseline_trajectory(ch1, ch2)
         else:
-            engagement_trajectory = self._calculate_ratio_trajectory(ch1_data, ch2_data)
+            traj = self._calculate_ratio_trajectory(ch1, ch2)
 
-        # Aggregate trajectory into single score
-        final_engagement = self._aggregate_trajectory(engagement_trajectory)
-
-        # Apply smoothing if needed
-        if self.smoothing > 0:
-            final_engagement = (self.smoothing * final_engagement +
-                                (1 - self.smoothing) * self.current_engagement)
-
-        self.current_engagement = np.clip(final_engagement, 0.0, 1.0)
+        # Use the latest window only (more reactive)
+        final = traj[-1] if len(traj) else 0.5
+        self.current_engagement = np.clip(final, 0.0, 1.0)
         self.turn_idx += 1
         self.turn_active = False
+        print(f"\n[Turn {self.turn_idx}] engagement={self.current_engagement:.3f}")
 
-        print(f"\n[Turn {self.turn_idx}] Clean filtered data → engagement={self.current_engagement:.3f}")
+        # ---- adaptive baseline blend ---------------------------------
+        if self.baseline_ready and self.baseline_update_rate > 0:
+            r = self.baseline_update_rate
+            new_pow = self._band_powers(ch1, ch2)
+            for band, stats in self.baseline_stats.items():
+                new_log = np.log(new_pow[band] + 1e-12)
+                mean = stats["mean"]
+                std = stats["std"]
+                stats["mean"] = (1 - r) * mean + r * new_log
+                stats["std"] = (1 - r) * std + r * abs(new_log - mean)
+        # --------------------------------------------------------------
+
         return self.current_engagement
 
     def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
@@ -199,55 +195,43 @@ class TurnBasedEngagementScorer:
 
         return out
 
-    def _calculate_baseline_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
-        """Calculate engagement using baseline-normalized approach."""
-        # Window parameters
-        window_size = int(2.0 * EEG_SAMPLE_RATE)  # 2-second windows
-        overlap = int(0.5 * EEG_SAMPLE_RATE)  # 0.5-second overlap
-        step_size = window_size - overlap
+    # ------------------------------------------------------------------
+    # Consistent baseline‑normalised trajectory (log power everywhere)
+    # ------------------------------------------------------------------
+    def _calculate_baseline_trajectory(self,
+                                       ch1_data: np.ndarray,
+                                       ch2_data: np.ndarray) -> np.ndarray:
+        win = int(2.0 * EEG_SAMPLE_RATE)  # 2 s
+        step = int(1.5 * EEG_SAMPLE_RATE)  # 0.5 s overlap
 
-        engagement_values = []
+        out = []
+        for s in range(0, len(ch1_data) - win + 1, step):
+            e = s + win
+            powers = self._band_powers_log(ch1_data[s:e], ch2_data[s:e])
 
-        # Slide window across the entire epoch
-        for start_idx in range(0, len(ch1_data) - window_size + 1, step_size):
-            end_idx = start_idx + window_size
+            z = {}
+            for band in ("alpha", "beta", "theta"):
+                mu = self.baseline_stats[band]["mean"]
+                sig = self.baseline_stats[band]["std"]
+                z[band] = (powers[band] - mu) / sig
 
-            # Extract window
-            window_ch1 = ch1_data[start_idx:end_idx]
-            window_ch2 = ch2_data[start_idx:end_idx]
+            out.append(self._calculate_engagement_from_z_scores(z))
+        return np.asarray(out)
 
-            # Calculate powers for this window
-            window_powers = self._band_powers(window_ch1, window_ch2)
+    # ------------------------------------------------------------------
+    # 4.  Linear engagement mapping (no sigmoid, no extra smoothing)
+    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Gentler linear mapping (gain = 0.04) and hard clip
+    # ------------------------------------------------------------------
+    def _calculate_engagement_from_z_scores(self,
+                                            z: Dict[str, float]) -> float:
+        beta_z = z.get("beta", 0.0)
+        alpha_z = z.get("alpha", 0.0)
+        theta_z = z.get("theta", 0.0)
 
-            # Calculate z-scores using baseline
-            z_scores = {}
-            for band in ['alpha', 'beta', 'theta']:
-                if band in self.baseline_stats:
-                    baseline_mean = self.baseline_stats[band]['mean']
-                    baseline_std = self.baseline_stats[band]['std']
-                    z_scores[band] = (window_powers[band] - baseline_mean) / baseline_std
-                else:
-                    z_scores[band] = 0.0
-
-            # Calculate engagement from z-scores
-            window_engagement = self._calculate_engagement_from_z_scores(z_scores)
-            engagement_values.append(window_engagement)
-
-        return np.array(engagement_values)
-
-    def _calculate_engagement_from_z_scores(self, z_scores: Dict[str, float]) -> float:
-        """Calculate engagement from baseline-normalized z-scores."""
-        alpha_z = z_scores.get('alpha', 0.0)
-        beta_z = z_scores.get('beta', 0.0)
-        theta_z = z_scores.get('theta', 0.0)
-
-        # Engagement: high beta, low alpha (classic pattern)
-        engagement_score = beta_z - 0.5 * alpha_z + 0.2 * theta_z
-
-        # Normalize to [0,1] range
-        normalized = 1 / (1 + np.exp(-engagement_score))  # Sigmoid
-
-        return np.clip(normalized, 0.1, 0.9)
+        score = beta_z - 0.5 * alpha_z + 0.2 * theta_z
+        return np.clip(0.5 + 0.05 * score, 0.0, 1.0)
 
     def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
         """Calculate engagement over time using direct ratios (fallback)."""
@@ -264,6 +248,15 @@ class TurnBasedEngagementScorer:
             window_ch2 = ch2_data[start_idx:end_idx]
 
             window_powers = self._band_powers(window_ch1, window_ch2)
+            if self.turn_idx == 0:
+                print('alpha', window_powers['alpha'],
+                      'beta', window_powers['beta'],
+                      'theta', window_powers['theta'])
+            z = {b: (window_powers[b] - self.baseline_stats[b]['mean']) /
+                    self.baseline_stats[b]['std']
+                 for b in ['alpha', 'beta', 'theta']}
+            print('z', z)
+
             window_engagement = self._calculate_engagement_from_ratios(window_powers)
             engagement_values.append(window_engagement)
 
@@ -319,3 +312,8 @@ class TurnBasedEngagementScorer:
     def get_filter_info(self) -> dict:
         """Get information about the filtering being used."""
         return self.online_filter.get_filter_info()
+
+    # helper: always return log power
+    def _band_powers_log(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        raw = self._band_powers(x, y)  # existing function
+        return {b: np.log(p + 1e-12) for b, p in raw.items()}

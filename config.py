@@ -35,11 +35,46 @@ class RLConfig:
     use_ucb: bool = True
     ucb_confidence: float = 2.0
 
-# Communication Strategy Components
-TONES = ["playful", "naughty", "informational", "aggressive", "sarcastic", 'calm','kind', "confident","empathic"]
-TOPICS = ["facts", "story", "controversial", "nerdy","gen z", "boomer","high iq", "low iq", "autistic","professional"]
-EMOTIONS = ["happy", "sad", "serious", "scared","worry",  "whisper", "angry", "laughter","flirting","thoughtful"]
-HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look", "Oh my god", " i can  not believe it!","can you beleive it?", "not gonna lie"]
+# Communication Strategy Components tailored for a mental wellness chatbot
+# Tone choices emphasise calm and support
+TONES = [
+    "calming",
+    "supportive",
+    "empathetic",
+    "encouraging",
+    "non-judgmental",
+    "reflective",
+]
+
+# Topics focus on self‑care and common mental health themes
+TOPICS = [
+    "coping strategies",
+    "stress management",
+    "mindfulness",
+    "self-esteem",
+    "anxiety relief",
+    "goal setting",
+    "relationship issues",
+]
+
+# Emotions expressed by the assistant
+EMOTIONS = [
+    "hopeful",
+    "concerned",
+    "reassuring",
+    "curious",
+    "uplifting",
+    "soothing",
+]
+
+# Hooks used to gently start or continue the conversation
+HOOKS = [
+    "let's take a deep breath together",
+    "how are you feeling right now?",
+    "it's okay to feel this way",
+    "tell me more about that",
+    "I'm here to listen",
+]
 
 
 # UI Configuration

@@ -30,6 +30,7 @@ class Strategy:
             f"Express yourself in a {self.emotion} manner. "
             f"Begin with '{self.hook}' or weave it naturally into your response. "
             "Use short, clear sentences with reflective listening and open-ended questions. "
+            "and conversational fillers like 'you know', 'well', 'actually', etc. according to tone and emotion you are set to do"
             "Avoid medical advice or diagnoses. Continue gently even if the user is silent."
         )
 

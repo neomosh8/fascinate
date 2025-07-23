@@ -94,6 +94,9 @@ class ConversationOrchestrator:
             current_engagement = self.engagement_scorer.get_current_engagement()
             self.ui_callbacks["update_engagement"](current_engagement)
 
+        if "update_eeg" in self.ui_callbacks:
+            self.ui_callbacks["update_eeg"]((ch1_samples, ch2_samples))
+
     def _calculate_tts_engagement_score(
         self, engagement_during_tts: List[float], tts_duration: float
     ) -> Dict[str, float]:

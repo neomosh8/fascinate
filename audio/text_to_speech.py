@@ -66,16 +66,16 @@ class TextToSpeech:
         if user_emotion < 0.4:
             emotion_instruction = "The person seems in a withdrawn or difficult emotional state. Respond with extra warmth, patience, and gentleness. "
         elif user_emotion > 0.6:
-            emotion_instruction = "The person seems emotionally open and positive. You can match some of their energy while staying therapeutic. "
+            emotion_instruction = "The person seems emotionally open and positive. You can match , talk energetic and happy "
         else:
-            emotion_instruction = "The person seems emotionally neutral. Use a balanced, steady approach. "
+            emotion_instruction = "The person seems emotionally neutral. use confident and professionl voice"
 
         if user_engagement < 0.4:
-            engagement_instruction = "They seem disengaged - add more vocal variety and warmth to draw them in. "
+            engagement_instruction = "They seem disengaged - add more vocal variety  talk in whispers and then normal sequence, glitches and psst "
         elif user_engagement > 0.7:
             engagement_instruction = "They're highly engaged - maintain steady presence without overstimulating. "
         else:
-            engagement_instruction = "Good engagement level - maintain current approach. "
+            engagement_instruction = "-"
 
         voice_instructions = self._build_voice_instructions(tts_params)
         full = (
@@ -83,9 +83,7 @@ class TextToSpeech:
             + emotion_instruction
             + engagement_instruction
             + voice_instructions
-            + "Don't read words in brackets, but embody the energy and style described. "
-            "Match your vocal delivery to be therapeutically responsive to their emotional state."
-        )
+            + "Don't read words in brackets, but embody the energy and style described." )
         return full
 
     async def speak(

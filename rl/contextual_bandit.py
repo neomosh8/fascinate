@@ -70,30 +70,86 @@ class ContextualBanditAgent:
     # Context vector construction
     # ------------------------------------------------------------------
     def _build_context_vector(self) -> np.ndarray:
+        """Build context vector with normalized components to prevent scale dominance."""
         vectors: List[np.ndarray] = []
         user_msgs, ai_responses, strategies, engagements = self.context.get_recent_context(3)
 
+        # 1. User text embeddings (normalized)
         if user_msgs:
             user_text = " [TURN] ".join(user_msgs)
-            vectors.append(self.embedding_service.embed_text(user_text))
+            user_embed = self.embedding_service.embed_text(user_text)
+            # L2 normalize to unit vector
+            user_norm = np.linalg.norm(user_embed)
+            if user_norm > 1e-8:  # Avoid division by zero
+                user_embed = user_embed / user_norm
+            vectors.append(user_embed)
+        else:
+            # Zero vector if no user messages
+            vectors.append(np.zeros(1536))  # OpenAI embedding dimension
 
+        # 2. AI response embeddings (normalized)
         if ai_responses:
             ai_text = " [TURN] ".join(ai_responses)
-            vectors.append(self.embedding_service.embed_text(ai_text))
+            ai_embed = self.embedding_service.embed_text(ai_text)
+            # L2 normalize to unit vector
+            ai_norm = np.linalg.norm(ai_embed)
+            if ai_norm > 1e-8:
+                ai_embed = ai_embed / ai_norm
+            vectors.append(ai_embed)
+        else:
+            # Zero vector if no AI responses
+            vectors.append(np.zeros(1536))
 
+        # 3. Strategy embeddings (normalized)
         if strategies:
             strategy_embeddings = [self.embedding_service.embed_strategy(s) for s in strategies]
-            vectors.append(np.mean(strategy_embeddings, axis=0))
+            strategy_mean = np.mean(strategy_embeddings, axis=0)
+            # L2 normalize the mean strategy embedding
+            strategy_norm = np.linalg.norm(strategy_mean)
+            if strategy_norm > 1e-8:
+                strategy_mean = strategy_mean / strategy_norm
+            vectors.append(strategy_mean)
+        else:
+            # Zero vector if no strategies
+            vectors.append(np.zeros(1536))
 
+        # 4. Engagement features (normalized)
         if engagements:
-            vectors.append(self.embedding_service.create_engagement_features(engagements))
+            eng_features = self.embedding_service.create_engagement_features(engagements)
+            # L2 normalize engagement features
+            eng_norm = np.linalg.norm(eng_features)
+            if eng_norm > 1e-8:
+                eng_features = eng_features / eng_norm
+            vectors.append(eng_features)
+        else:
+            # Zero vector if no engagement data
+            vectors.append(np.zeros(6))  # 6 engagement features
 
+        # 5. Concatenate all normalized components
         if vectors:
-            return np.concatenate(vectors)
-        # Very early in the conversation - provide a non-zero vector
+            context_vector = np.concatenate(vectors)
+            # Optional: normalize the final concatenated vector as well
+            final_norm = np.linalg.norm(context_vector)
+            if final_norm > 1e-8:
+                context_vector = context_vector / final_norm
+            return context_vector
+
+        # Fallback for very early conversation
         start_vec = self.embedding_service.embed_text("conversation start")
-        padding = np.zeros(1536 * 2 + 6)
-        return np.concatenate([start_vec, padding])
+        start_norm = np.linalg.norm(start_vec)
+        if start_norm > 1e-8:
+            start_vec = start_vec / start_norm
+
+        # Create normalized zero padding for other components
+        padding = np.zeros(1536 * 2 + 6)  # AI text + strategy + engagement
+        fallback_vector = np.concatenate([start_vec, padding])
+
+        # Normalize the fallback vector too
+        fallback_norm = np.linalg.norm(fallback_vector)
+        if fallback_norm > 1e-8:
+            fallback_vector = fallback_vector / fallback_norm
+
+        return fallback_vector
 
     # ------------------------------------------------------------------
     # Strategy selection
@@ -191,22 +247,84 @@ class ContextualBanditAgent:
         confidence_bonus = 2.0 * np.sqrt(np.log(self.total_selections) / n)
         return predicted_reward + confidence_bonus
 
+    def _calculate_contextual_similarity(self, current_context: np.ndarray, historical_context: np.ndarray) -> float:
+        """
+        Calculate similarity using separate text and engagement similarity computation.
+        Preserves OpenAI embedding semantics while handling scale/dimensionality issues.
+        """
+        # Split contexts into components
+        # Assuming structure: [user_embed(1536) + ai_embed(1536) + strategy_embed(1536) + engagement(6)]
+        TEXT_DIM = 4608  # 3 * 1536
+
+        curr_text = current_context[:TEXT_DIM]
+        curr_eng = current_context[TEXT_DIM:]
+
+        hist_text = historical_context[:TEXT_DIM]
+        hist_eng = historical_context[TEXT_DIM:]
+
+        # Calculate text similarity (preserve OpenAI embedding space)
+        text_norm_curr = np.linalg.norm(curr_text)
+        text_norm_hist = np.linalg.norm(hist_text)
+
+        if text_norm_curr > 1e-8 and text_norm_hist > 1e-8:
+            text_sim = np.dot(curr_text, hist_text) / (text_norm_curr * text_norm_hist)
+        else:
+            text_sim = 0.0
+
+        # Calculate engagement similarity
+        eng_norm_curr = np.linalg.norm(curr_eng)
+        eng_norm_hist = np.linalg.norm(hist_eng)
+
+        if eng_norm_curr > 1e-8 and eng_norm_hist > 1e-8:
+            eng_sim = np.dot(curr_eng, hist_eng) / (eng_norm_curr * eng_norm_hist)
+        else:
+            eng_sim = 0.0
+
+        # Combine similarities with weights
+        # You can tune these weights based on what matters more for your use case
+        text_weight = 0.5  # Text context importance
+        engagement_weight = 0.5  # Engagement pattern importance
+
+        final_similarity = text_weight * text_sim + engagement_weight * eng_sim
+        print(text_sim,eng_sim)
+        # Clip to valid cosine similarity range
+        return np.clip(final_similarity, -1.0, 1.0)
+
     def _predict_contextual_reward(self, strategy: Strategy, current_context: np.ndarray,
                                    historical_contexts: List[np.ndarray], historical_rewards: List[float]) -> float:
+        """
+        Predict reward using separate text/engagement similarity calculation.
+        """
         if not historical_contexts:
             return 0.5
+
+        # Calculate similarities using the new method
         similarities = []
-        for ctx in historical_contexts:
-            sim = np.dot(current_context, ctx) / (np.linalg.norm(current_context) * np.linalg.norm(ctx) + 1e-8)
+        for hist_context in historical_contexts:
+            sim = self._calculate_contextual_similarity(current_context, hist_context)
             similarities.append(sim)
+
         similarities = np.array(similarities)
         rewards = np.array(historical_rewards)
-        k = min(5, len(similarities))
-        top_idx = np.argsort(similarities)[-k:]
-        weights = similarities[top_idx]
-        weights = weights / (np.sum(weights) + 1e-8)
-        return float(np.sum(weights * rewards[top_idx]))
 
+        # Find top-k most similar contexts
+        k = min(5, len(similarities))
+        top_indices = np.argsort(similarities)[-k:]
+
+        # Weight rewards by similarity
+        top_similarities = similarities[top_indices]
+        top_rewards = rewards[top_indices]
+
+        # Avoid division by zero
+        similarity_sum = np.sum(top_similarities)
+        if similarity_sum > 1e-8:
+            weights = top_similarities / similarity_sum
+            predicted_reward = float(np.sum(weights * top_rewards))
+        else:
+            # Fallback to simple average if no meaningful similarities
+            predicted_reward = float(np.mean(top_rewards))
+
+        return predicted_reward
     def _calculate_cold_start_score(self, strategy: Strategy, context_vector: np.ndarray) -> float:
         """Estimate score for unseen strategies using component priors."""
         base_score = 8.0

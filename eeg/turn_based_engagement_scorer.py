@@ -2,6 +2,7 @@ import numpy as np
 from scipy import signal
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
+from collections import deque
 
 from config import EEG_SAMPLE_RATE
 from eeg.online_filter import OnlineFilter
@@ -49,6 +50,10 @@ class TurnBasedEngagementScorer:
         self.turn_active = False
         self.turn_idx = 0
         self.current_engagement = 0.5
+
+        # Emotion tracking
+        self.current_emotion = 0.5
+        self.emotion_history = deque(maxlen=10)
 
         # Buffer for collecting baseline during initial period (FILTERED data)
         self._baseline_buffer_ch1: List[float] = []
@@ -136,16 +141,16 @@ class TurnBasedEngagementScorer:
     # ------------------------------------------------------------------
     # 3.  Adaptive baseline update called at the end of every turn
     # ------------------------------------------------------------------
-    def end_turn(self, tts_duration: Optional[float] = None) -> float:
+    def end_turn(self, tts_duration: Optional[float] = None) -> Tuple[float, float]:
         if not self.turn_active:
-            return self.current_engagement
+            return self.current_engagement, self.current_emotion
         if len(self.turn_data) < 500:
             self.turn_active = False
-            return self.current_engagement
+            return self.current_engagement, self.current_emotion
         # ADD THIS CHECK:
         if not self.baseline_ready:
             self.turn_active = False
-            return 0.5  # Return neutral engagement if baseline not ready
+            return 0.5, 0.5  # Return neutral engagement if baseline not ready
 
         eeg = np.asarray(self.turn_data)
         ch1 = eeg[:, 0]
@@ -158,11 +163,17 @@ class TurnBasedEngagementScorer:
             traj = self._calculate_ratio_trajectory(ch1, ch2)
 
         # Use the latest window only (more reactive)
-        final = traj[-1] if len(traj) else 0.5
-        self.current_engagement = np.clip(final, 0.0, 1.0)
+        final_engagement = traj[-1] if len(traj) else 0.5
+        self.current_engagement = np.clip(final_engagement, 0.0, 1.0)
+
+        # Calculate emotion from alpha asymmetry
+        self.current_emotion = self._calculate_emotion_from_alpha_asymmetry(ch1, ch2)
+        self.emotion_history.append(self.current_emotion)
         self.turn_idx += 1
         self.turn_active = False
-        print(f"\n[Turn {self.turn_idx}] engagement={self.current_engagement:.3f}")
+        print(
+            f"[Turn {self.turn_idx}] engagement={self.current_engagement:.3f}, emotion={self.current_emotion:.3f}"
+        )
 
         # ---- adaptive baseline blend ---------------------------------
         if self.baseline_ready and self.baseline_update_rate > 0:
@@ -176,7 +187,7 @@ class TurnBasedEngagementScorer:
                 stats["std"] = (1 - r) * std + r * abs(new_log - mean)
         # --------------------------------------------------------------
 
-        return self.current_engagement
+        return self.current_engagement, self.current_emotion
 
     def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
         """Calculate band powers from ALREADY FILTERED data."""
@@ -198,6 +209,34 @@ class TurnBasedEngagementScorer:
             out[name] = power
 
         return out
+
+    def _extract_alpha_power(self, data: np.ndarray) -> float:
+        """Extract alpha band power from EEG data."""
+        if len(data) < 100:
+            return 1.0
+        nyq = EEG_SAMPLE_RATE / 2
+        sos = signal.butter(4, [8.0 / nyq, 13.0 / nyq], btype="band", output="sos")
+        alpha_filtered = signal.sosfilt(sos, data)
+        alpha_power = np.mean(alpha_filtered ** 2)
+        return alpha_power
+
+    def _calculate_emotion_from_alpha_asymmetry(
+        self, ch1_data: np.ndarray, ch2_data: np.ndarray
+    ) -> float:
+        """Calculate emotion from alpha asymmetry."""
+        alpha_power_ch1 = self._extract_alpha_power(ch1_data)
+        alpha_power_ch2 = self._extract_alpha_power(ch2_data)
+
+        if alpha_power_ch1 + alpha_power_ch2 > 0:
+            asymmetry = (alpha_power_ch2 - alpha_power_ch1) / (
+                alpha_power_ch1 + alpha_power_ch2
+            )
+            emotion_score = 0.5 + (asymmetry * 0.5)
+            emotion_score = np.clip(emotion_score, 0.0, 1.0)
+        else:
+            emotion_score = 0.5
+
+        return emotion_score
 
     # ------------------------------------------------------------------
     # Consistent baseline‑normalised trajectory (log power everywhere)
@@ -235,7 +274,7 @@ class TurnBasedEngagementScorer:
         theta_z = z.get("theta", 0.0)
 
         score = beta_z - 0.5 * alpha_z + 0.2 * theta_z
-        return np.clip(0.5 + 0.05 * score, 0.0, 1.0)
+        return np.clip(0.5 + 0.15 * score, 0.0, 1.0)
 
     def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
         """Calculate engagement over time using direct ratios (fallback)."""
@@ -316,6 +355,19 @@ class TurnBasedEngagementScorer:
     def get_filter_info(self) -> dict:
         """Get information about the filtering being used."""
         return self.online_filter.get_filter_info()
+
+    def get_current_emotion(self) -> float:
+        """Get current emotion score."""
+        return self.current_emotion
+
+    def get_emotion_trend(self) -> str:
+        """Get emotion trend description."""
+        if self.current_emotion > 0.6:
+            return "approach/positive"
+        elif self.current_emotion < 0.4:
+            return "withdrawal/negative"
+        else:
+            return "neutral"
 
     # helper: always return log power
     def _band_powers_log(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:

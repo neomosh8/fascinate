@@ -35,8 +35,8 @@ class GPTConversation:
             "content": f"""
 {strategy.to_prompt_with_memory()}
 Keep responses concise but allow for more detail as conversation progresses.
-Current turn: {turn_count}, Token limit: {max_tokens}
-Put normal talking glitches in bracket, like [laughter] [smirk] [cough] [ahhhh] [emmmm] etc.."""
+keep in the Token limit: {max_tokens}
+Put normal talking glitches in bracket, like [laughter], [sigh], [umm], [ahhh], [uhhh], [pause], [clears throat], [cough], [hmm], [gulp] etc.."""
         })
 
         # Add conversation history (keep last 5 turns for context)

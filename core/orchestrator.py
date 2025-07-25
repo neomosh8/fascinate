@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from config import AUTO_ADVANCE_TIMEOUT_SEC
+from therapy.session_manager import TherapeuticSessionManager
 from utils.logger import ConversationLogger
 from audio.speech_to_text import SpeechToText
 from audio.text_to_speech import TextToSpeech
@@ -28,6 +29,8 @@ class TurnData:
     engagement_before: float
     engagement_during_tts: List[float]  # Track engagement throughout TTS
     engagement_after: float
+    emotion_before: float
+    emotion_after: float
     reward: float
     duration: float
 
@@ -44,6 +47,11 @@ class ConversationOrchestrator:
         self.eeg_manager = EEGDeviceManager()
         self.engagement_scorer = TurnBasedEngagementScorer()
         self.event_loop = None
+
+        # Therapeutic session management
+        self.therapeutic_manager = TherapeuticSessionManager()
+        self.therapy_mode = True
+        self.last_emotion = 0.5
 
         # Initialize Contextual Bandit agent
         self.bandit_agent = ContextualBanditAgent(context_window_size=5)
@@ -93,6 +101,10 @@ class ConversationOrchestrator:
         if "update_engagement" in self.ui_callbacks:
             current_engagement = self.engagement_scorer.get_current_engagement()
             self.ui_callbacks["update_engagement"](current_engagement)
+
+        if "update_emotion" in self.ui_callbacks:
+            current_emotion = self.engagement_scorer.get_current_emotion()
+            self.ui_callbacks["update_emotion"](current_emotion)
 
         if "update_eeg" in self.ui_callbacks:
             self.ui_callbacks["update_eeg"]((ch1_samples, ch2_samples))
@@ -254,32 +266,30 @@ class ConversationOrchestrator:
         return 1.0
 
     async def _speak_with_engagement_tracking(
-            self, text: str, strategy
-    ) -> Tuple[float, float, float]:
-        """Speak text while tracking engagement for entire turn."""
+            self, text: str, strategy,
+            user_emotion: float, user_engagement: float
+    ) -> Tuple[float, float, float, float]:
+        """Speak with emotion-adaptive TTS and track results."""
 
         try:
-            # Start turn tracking
             self.engagement_scorer.start_turn()
 
-            # Get engagement before TTS
             engagement_before = self.engagement_scorer.get_current_engagement()
+            emotion_before = self.engagement_scorer.get_current_emotion()
 
-            # Speak with TTS
             tts_start = time.time()
-            await self.tts.speak(text, strategy)
+            await self.tts.speak(text, strategy, user_emotion, user_engagement,voice='shimmer')
             tts_end = time.time()
             tts_duration = tts_end - tts_start
 
-            # End turn tracking and get final engagement
-            engagement_after = self.engagement_scorer.end_turn(tts_duration)
+            engagement_after, emotion_after = self.engagement_scorer.end_turn(tts_duration)
 
             self.logger.info(
-                f"Turn engagement: {engagement_before:.3f} -> {engagement_after:.3f} "
-                f"(duration: {tts_duration:.1f}s)"
+                f"Adaptive TTS: {engagement_before:.3f}->{engagement_after:.3f}, "
+                f"emotion {emotion_before:.3f}->{emotion_after:.3f}"
             )
 
-            return tts_start, tts_end, engagement_after
+            return tts_start, tts_end, engagement_after, emotion_after
 
         except Exception as e:
             self.logger.error(f"Error during TTS engagement tracking: {e}")
@@ -306,8 +316,9 @@ class ConversationOrchestrator:
             )
             await asyncio.sleep(0.2)
 
-        # 2. Get current engagement (before response)
+        # 2. Get current engagement and emotion before response
         engagement_before = self.engagement_scorer.get_current_engagement()
+        emotion_before = self.engagement_scorer.get_current_emotion()
 
         # Build context vector before selecting strategy
         context_vector = self.bandit_agent._build_context_vector()
@@ -315,7 +326,10 @@ class ConversationOrchestrator:
         print("context vector:",context_vector)
 
         # 3. Bandit agent selects strategy
-        strategy = self.bandit_agent.select_strategy()
+        if self.therapy_mode:
+            strategy = await self.therapeutic_manager.select_therapeutic_strategy()
+        else:
+            strategy = self.bandit_agent.select_strategy()
 
         self.logger.info(
             f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
@@ -335,8 +349,10 @@ class ConversationOrchestrator:
 
         # 5. Speak response with turn-based engagement tracking
         self.logger.info("Speaking response with turn-based engagement tracking...")
-        tts_start, tts_end, engagement_after = (
-            await self._speak_with_engagement_tracking(assistant_text, strategy)
+        tts_start, tts_end, engagement_after, emotion_after = (
+            await self._speak_with_engagement_tracking(
+                assistant_text, strategy, emotion_before, engagement_before
+            )
         )
 
         # 6. Calculate reward using turn-based engagement data
@@ -353,6 +369,18 @@ class ConversationOrchestrator:
             assistant_text,
             self.bandit_agent._classify_context(user_text, user_spoke),
         )
+
+        if self.therapy_mode:
+            therapeutic_analysis = await self.therapeutic_manager.process_therapeutic_turn(
+                user_text, assistant_text, engagement_after
+            )
+
+            print(f"📊 Concepts found: {therapeutic_analysis['concepts_found']}")
+            print(f"🎯 Hot concepts: {therapeutic_analysis['hot_concepts']}")
+            print(
+                f"🔄 Session phase: {therapeutic_analysis['session_phase']} (turn {therapeutic_analysis['turn_in_phase']})")
+
+
 
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
@@ -374,6 +402,7 @@ class ConversationOrchestrator:
 
         # Update state
         self.last_engagement = engagement_after
+        self.last_emotion = emotion_after
         self.turn_count += 1
 
         # Start auto-advance timer
@@ -388,9 +417,12 @@ class ConversationOrchestrator:
             engagement_before=engagement_before,
             engagement_during_tts=[engagement_after],  # Single value in list for compatibility
             engagement_after=engagement_after,
+            emotion_before=emotion_before,
+            emotion_after=emotion_after,
             reward=reward,
             duration=time.time() - turn_start,
         )
+
 
         # Enhanced logging (updated for turn-based approach)
         self.logger.log_turn(
@@ -429,7 +461,9 @@ class ConversationOrchestrator:
             if "update_transcript" in self.ui_callbacks:
                 self.ui_callbacks["update_transcript"](f"Assistant: {greeting}")
 
-            await self._speak_with_engagement_tracking(greeting, strategy)
+            await self._speak_with_engagement_tracking(
+                greeting, strategy, 0.5, 0.5
+            )
 
             # Start auto-advance timer after greeting
             self.start_auto_advance_timer()

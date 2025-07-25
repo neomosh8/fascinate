@@ -90,3 +90,51 @@ def calculate_dynamic_tokens(turn_count: int) -> int:
         progress = (turn_count - WARMUP_TURNS) / (MAX_TURN - WARMUP_TURNS)
         token_range = MAX_GPT_TOKENS - MIN_GPT_TOKENS
         return int(MIN_GPT_TOKENS + (progress * token_range))
+
+
+# Therapeutic Strategy Components
+THERAPEUTIC_TONES = [
+    "empathetic",
+    "validating",
+    "curious",
+    "gentle",
+    "reflective",
+    "supportive",
+]
+
+EXPLORATION_DOMAINS = [
+    "family",
+    "relationships",
+    "childhood",
+    "career",
+    "dreams",
+    "fears",
+    "identity",
+    "loss",
+]
+
+THERAPEUTIC_APPROACHES = [
+    "cognitive",
+    "mindful",
+    "exploratory",
+    "validating",
+    "somatic",
+    "narrative",
+]
+
+THERAPEUTIC_HOOKS = [
+    "I'm noticing...",
+    "It sounds like...",
+    "Help me understand...",
+    "What comes up for you...",
+    "Tell me more about...",
+    "I'm curious about...",
+]
+
+
+@dataclass
+class TherapyConfig:
+    exploration_turns: int = 8
+    exploitation_turns: int = 5
+    activation_threshold: float = 0.7
+    min_concept_mentions: int = 2

@@ -22,69 +22,122 @@ class TextToSpeech:
         self.current_audio_file = None
 
     def _strategy_to_instructions(self, strategy: Strategy) -> str:
-        """Convert strategy to TTS instructions."""
-        parts = [strategy.tone, strategy.emotion]
-        if parts:
-            instruction = (
-                f"Speak {' and '.join(parts)}. Don't read words in brackets, but match your energy from those words and mimic them, in terms of level, pace, tonality, personality etc"
-            )
+        """Convert strategy to comprehensive TTS instructions."""
+        base_tone = strategy.tone.lower()
+        base_emotion = strategy.emotion.lower()
+
+        # Build detailed voice characteristics based on strategy
+        if "professional" in base_tone:
+            voice_affect = "Composed, authoritative, and competent; project quiet confidence and expertise."
+            pacing = "Steady and measured; deliberate enough to convey thoughtfulness, efficient enough to demonstrate professionalism."
+            pronunciation = "Clear and precise, emphasizing key points with subtle emphasis."
+        elif "friendly" in base_tone:
+            voice_affect = "Warm, approachable, and engaging; project genuine interest and openness."
+            pacing = "Natural and conversational; relaxed enough to feel personal, energetic enough to maintain engagement."
+            pronunciation = "Clear and natural, with slight emphasis on positive words and welcoming phrases."
+        elif "empathetic" in base_tone:
+            voice_affect = "Gentle, understanding, and supportive; project deep care and emotional intelligence."
+            pacing = "Calm and unhurried; slow enough to communicate patience, steady enough to provide comfort."
+            pronunciation = "Soft and clear, with gentle emphasis on reassuring words and understanding phrases."
         else:
-            instruction = "Speak in a natural, conversational tone."
-        return instruction
+            voice_affect = "Natural and balanced; project authenticity and genuine presence."
+            pacing = "Conversational and steady; natural rhythm that feels human and engaging."
+            pronunciation = "Clear and natural, emphasizing important points with subtle vocal variation."
 
-    def _build_voice_instructions(self, tts_params: Dict[str, float]) -> str:
+        # Adapt emotion overlay
+        if "excited" in base_emotion:
+            emotion_overlay = "Express genuine enthusiasm and energy; let excitement shine through without overwhelming."
+        elif "calm" in base_emotion:
+            emotion_overlay = "Maintain serene composure and peaceful energy; speak with centered tranquility."
+        elif "concerned" in base_emotion:
+            emotion_overlay = "Convey thoughtful concern and attentiveness; show you're taking things seriously."
+        elif "joyful" in base_emotion:
+            emotion_overlay = "Radiate warmth and positivity; let natural happiness color your delivery."
+        else:
+            emotion_overlay = "Express authentic emotion that matches the content naturally."
+
+        return f"Voice Affect: {voice_affect} Emotion: {emotion_overlay} Pacing: {pacing} Pronunciation: {pronunciation} Don't read words in brackets - instead embody the energy and style they describe in your vocal delivery."
+
+    def _build_adaptive_voice_instructions(self, tts_params: Dict[str, float], user_emotion: float, user_engagement: float) -> str:
+        """Build sophisticated voice instructions based on parameters and user state."""
         instructions = []
+
+        # Speed adaptations with nuanced descriptions
         if tts_params["speed"] < 0.85:
-            instructions.append("Speak slowly and deliberately")
+            instructions.append("Pacing: Deliberately slow and thoughtful; each word carries weight and intention, creating space for reflection")
         elif tts_params["speed"] > 1.1:
-            instructions.append("Speak with good pace and energy")
+            instructions.append("Pacing: Energetic and dynamic; speak with vitality and forward momentum while maintaining clarity")
 
+        # Pitch adaptations with emotional context
         if tts_params["pitch"] < -0.1:
-            instructions.append("use a deeper, grounded tone")
+            instructions.append("Tone Quality: Rich, grounded, and resonant; project depth and gravitas with a warm lower register")
         elif tts_params["pitch"] > 0.1:
-            instructions.append("use a lighter, more uplifting tone")
+            instructions.append("Tone Quality: Bright and uplifting; use a lighter register that conveys optimism and openness")
 
+        # Energy adaptations with specific affect
         if tts_params["energy"] < 0.85:
-            instructions.append("speak calmly and gently")
+            instructions.append("Voice Affect: Gentle and soothing; speak with soft intensity that creates calm and safety")
         elif tts_params["energy"] > 1.1:
-            instructions.append("speak with warmth and vitality")
+            instructions.append("Voice Affect: Vibrant and engaging; radiate enthusiasm while maintaining natural warmth")
 
+        # Warmth with emotional intelligence
         if tts_params["warmth"] > 1.1:
-            instructions.append("infuse extra warmth and compassion into your voice")
+            instructions.append("Emotional Range: Infuse every word with genuine compassion and understanding; let care flow through your voice naturally")
 
-        return ". ".join(instructions) + ". " if instructions else ""
+        # User state adaptations
+        if user_emotion < 0.4:
+            instructions.append("Emotional Sensitivity: The person seems withdrawn or struggling - speak with extra gentleness, patience, and reassuring presence. Use softer intonation and allow natural pauses for comfort")
+        elif user_emotion > 0.6:
+            instructions.append("Emotional Resonance: The person seems positive and open - you can match their energy with warmth and enthusiasm, using brighter intonation")
+
+        if user_engagement < 0.4:
+            instructions.append("Engagement Style: They seem distracted - add subtle vocal variety and intrigue. Use strategic pauses, whisper-to-normal transitions, and gentle vocal texture changes to recapture attention")
+        elif user_engagement > 0.7:
+            instructions.append("Engagement Style: They're highly focused - maintain steady, consistent delivery without overwhelming. Use subtle emphasis and natural rhythm")
+
+        return ". ".join(instructions) + "." if instructions else ""
 
     def _strategy_to_adaptive_instructions(
         self, strategy: Strategy, user_emotion: float, user_engagement: float
     ) -> str:
-        """Convert strategy and user state to adaptive TTS instructions."""
+        """Convert strategy and user state to comprehensive adaptive TTS instructions."""
         tts_params = strategy.get_emotion_adapted_tts_params(
             user_emotion, user_engagement
         )
-        base_instructions = f"Speak {strategy.tone} and {strategy.emotion}. "
 
-        if user_emotion < 0.4:
-            emotion_instruction = "The person seems in a withdrawn or difficult emotional state. Respond with extra warmth, patience, and gentleness. "
-        elif user_emotion > 0.6:
-            emotion_instruction = "The person seems emotionally open and positive. You can match , talk energetic and happy "
-        else:
-            emotion_instruction = "The person seems emotionally neutral. use confident and professionl voice"
+        # Get base strategy instructions
+        base_instructions = self._strategy_to_instructions(strategy)
 
-        if user_engagement < 0.4:
-            engagement_instruction = "They seem disengaged - add more vocal variety  talk in whispers and then normal sequence, glitches and psst "
-        elif user_engagement > 0.7:
-            engagement_instruction = "They're highly engaged - maintain steady presence without overstimulating. "
-        else:
-            engagement_instruction = "-"
+        # Add adaptive voice instructions
+        adaptive_instructions = self._build_adaptive_voice_instructions(
+            tts_params, user_emotion, user_engagement
+        )
 
-        voice_instructions = self._build_voice_instructions(tts_params)
-        full = (
-            base_instructions
-            + emotion_instruction
-            + engagement_instruction
-            + voice_instructions
-            + "Don't read words in brackets, but embody the energy and style described." )
-        return full
+        # Combine with context-aware delivery style
+        context_instructions = self._build_context_instructions(user_emotion, user_engagement)
+
+        # Final instruction combining all elements
+        full_instructions = f"{base_instructions} {adaptive_instructions} {context_instructions}"
+
+        return full_instructions
+
+    def _build_context_instructions(self, user_emotion: float, user_engagement: float) -> str:
+        """Build context-aware delivery instructions."""
+        context_parts = []
+
+        # Emotional context
+        if user_emotion < 0.3:
+            context_parts.append("Delivery Context: This person may be having a difficult time - prioritize emotional safety, speak as if offering a warm embrace through your voice")
+        elif user_emotion > 0.7:
+            context_parts.append("Delivery Context: This person seems upbeat - you can be more expressive and mirror their positive energy naturally")
+
+        # Engagement context
+        if user_engagement < 0.3:
+            context_parts.append("Attention Context: Low engagement detected - use vocal storytelling techniques like dramatic pauses, volume variation, and compelling rhythm to draw them in")
+        elif user_engagement > 0.8:
+            context_parts.append("Attention Context: High engagement - maintain their interest with confident, clear delivery and well-placed emphasis")
+
+        return " ".join(context_parts)
 
     async def speak(
         self,
@@ -105,9 +158,6 @@ class TextToSpeech:
                 strategy, user_emotion, user_engagement
             )
 
-            # print(f"TTS Instructions: {instructions}")
-            # print(f"TTS Text: {text[:100]}...")
-
             # Generate audio
             start_time = asyncio.get_event_loop().time()
 
@@ -123,11 +173,13 @@ class TextToSpeech:
                     model="gpt-4o-mini-tts",
                     voice=voice,
                     input=text,
-                    instructions=instructions,
-                    response_format="mp3"
+                    instructions=instructions
                 )
                 return response.content
-            print(instructions,text)
+
+            print("📝 TTS Instructions:", instructions[:200] + "..." if len(instructions) > 200 else instructions)
+            print("🗣️ TTS Text:", text[:100] + "..." if len(text) > 100 else text)
+
             audio_data = await loop.run_in_executor(None, _generate)
 
             # Save to temporary file for pygame
@@ -144,7 +196,7 @@ class TextToSpeech:
             self.is_playing = True
             tts_start = asyncio.get_event_loop().time()
 
-            # Wait for playbook to complete
+            # Wait for playback to complete
             while pygame.mixer.music.get_busy():
                 await asyncio.sleep(0.1)
 

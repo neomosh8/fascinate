@@ -274,7 +274,7 @@ class TurnBasedEngagementScorer:
         theta_z = z.get("theta", 0.0)
 
         score = beta_z - 0.5 * alpha_z + 0.2 * theta_z
-        return np.clip(0.5 + 0.05 * score, 0.0, 1.0)
+        return np.clip(0.5 + 0.15 * score, 0.0, 1.0)
 
     def _calculate_ratio_trajectory(self, ch1_data: np.ndarray, ch2_data: np.ndarray) -> np.ndarray:
         """Calculate engagement over time using direct ratios (fallback)."""

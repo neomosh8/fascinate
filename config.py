@@ -36,10 +36,16 @@ class RLConfig:
     ucb_confidence: float = 2.0
 
 # Communication Strategy Components
-TONES = ["playful", "naughty", "informational", "aggressive", "sarcastic", 'calm','kind', "confident","empathic"]
-TOPICS = ["facts", "story", "controversial", "nerdy","gen z", "boomer","high iq", "low iq", "autistic","professional"]
-EMOTIONS = ["happy", "sad", "serious", "scared","worry",  "whisper", "angry", "laughter","flirting","thoughtful"]
-HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look", "Oh my god", " i can  not believe it!","can you beleive it?", "not gonna lie"]
+# TONES = ["playful", "naughty", "informational", "aggressive", "sarcastic", 'calm','kind', "confident","empathic"]
+# TOPICS = ["facts", "story", "controversial", "nerdy","gen z", "boomer","high iq", "low iq", "autistic","professional"]
+# EMOTIONS = ["happy", "sad", "serious", "scared","worry",  "whisper", "angry", "laughter","flirting","thoughtful"]
+# HOOKS = ["hey [name]", "you know what?", "are you with me?", "listen", "look", "Oh my god", " i can  not believe it!","can you beleive it?", "not gonna lie"]
+
+# Communication Strategy Components
+TONES = ["playful", "confident", "kind", "sarcastic", "informational"]
+TOPICS = ["story", "facts", "controversial", "gen z", "professional"]
+EMOTIONS = ["happy", "serious", "thoughtful", "angry", "flirting"]
+HOOKS = ["hey mosh", "you know what?", "listen", "can you believe it?", "not gonna lie"]
 
 
 # UI Configuration

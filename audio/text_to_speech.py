@@ -129,7 +129,7 @@ class TextToSpeech:
                     response_format="mp3"
                 )
                 return response.content
-
+            print(instructions,text)
             audio_data = await loop.run_in_executor(None, _generate)
 
             # Save to temporary file for pygame

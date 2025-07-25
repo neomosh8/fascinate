@@ -370,6 +370,18 @@ class ConversationOrchestrator:
             self.bandit_agent._classify_context(user_text, user_spoke),
         )
 
+        if self.therapy_mode:
+            therapeutic_analysis = await self.therapeutic_manager.process_therapeutic_turn(
+                user_text, assistant_text, engagement_after
+            )
+
+            print(f"📊 Concepts found: {therapeutic_analysis['concepts_found']}")
+            print(f"🎯 Hot concepts: {therapeutic_analysis['hot_concepts']}")
+            print(
+                f"🔄 Session phase: {therapeutic_analysis['session_phase']} (turn {therapeutic_analysis['turn_in_phase']})")
+
+
+
         # Let strategy learn from this example
         strategy.add_example(assistant_text, engagement_after - engagement_before)
 
@@ -410,6 +422,7 @@ class ConversationOrchestrator:
             reward=reward,
             duration=time.time() - turn_start,
         )
+
 
         # Enhanced logging (updated for turn-based approach)
         self.logger.log_turn(

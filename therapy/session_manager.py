@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 from .concept_extractor import ConceptExtractor
 from .concept_tracker import ConceptTracker
-from .therapeutic_strategy import TherapeuticStrategy
+from rl.therapeutic_strategy import TherapeuticStrategy
 from config import TherapyConfig
 
 

@@ -142,6 +142,10 @@ class TurnBasedEngagementScorer:
         if len(self.turn_data) < 500:
             self.turn_active = False
             return self.current_engagement
+        # ADD THIS CHECK:
+        if not self.baseline_ready:
+            self.turn_active = False
+            return 0.5  # Return neutral engagement if baseline not ready
 
         eeg = np.asarray(self.turn_data)
         ch1 = eeg[:, 0]

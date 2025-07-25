@@ -206,8 +206,10 @@ class ConversationOrchestrator:
         engagement_delta = engagement_after - engagement_before
 
         # 2. Base reward is amplified delta
-        reward = engagement_delta * 5.0  # Scale to meaningful range
-
+        reward = engagement_delta * 10.0  # Scale to meaningful range
+        print(reward)
+        print("engagement_after:",engagement_after)
+        print("engagement_before:",engagement_before)
         # 3. Absolute engagement level bonuses
         if engagement_after > 0.7:
             reward += 0.5  # High engagement bonus
@@ -226,19 +228,13 @@ class ConversationOrchestrator:
         if user_spoke:
             response_quality = self._assess_response_quality(user_text, assistant_text)
             reward += 0.15 * response_quality
-
+            print("reward after user:",reward,response_quality)
         # 6. Context-specific bonuses (keep these)
         if context_type == "auto_advance" and engagement_after > 0.6:
             reward += 0.3
         elif context_type == "cold_start" and engagement_after > 0.4:
             reward += 0.2
 
-        # 7. Session progression (light multiplier)
-        progression_multiplier = min(1.0 + session_duration / 600, 1.2)  # Max 20% bonus
-        reward *= progression_multiplier
-
-        # 8. Final clipping
-        reward = np.clip(reward, -3.0, 3.0)
 
         # Store delta for debugging (remove old normalization tracking)
         if not hasattr(self, 'delta_history'):
@@ -326,7 +322,7 @@ class ConversationOrchestrator:
         # Update UI immediately to show selected strategy before TTS
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, None))
-            await asyncio.sleep(0.05)  # Small delay to ensure update is processed
+            await asyncio.sleep(0.5)  # Small delay to ensure update is processed
 
         # 4. Generate GPT response
         self.logger.info("Generating response...")
@@ -371,6 +367,8 @@ class ConversationOrchestrator:
         if "update_strategy" in self.ui_callbacks:
             self.ui_callbacks["update_strategy"]((strategy, reward))
             self.logger.info(f"UI update sent: strategy={strategy.tone}, reward={reward:.3f}")
+            await asyncio.sleep(0.5)  # Small delay to ensure update is processed
+
 
         # Update state
         self.last_engagement = engagement_after

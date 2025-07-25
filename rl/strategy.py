@@ -48,11 +48,11 @@ class Strategy:
     def add_example(self, response: str, engagement_delta: float):
         """Add a response example with engagement result to memory."""
         example = (response, engagement_delta)
-        if engagement_delta > 0.1:
+        if engagement_delta > 0.2:
             self.best_examples.append(example)
             self.best_examples.sort(key=lambda x: x[1], reverse=True)
             self.best_examples = self.best_examples[: self.max_examples]
-        elif engagement_delta < -0.1:
+        elif engagement_delta < -0.2:
             self.worst_examples.append(example)
             self.worst_examples.sort(key=lambda x: x[1])
             self.worst_examples = self.worst_examples[: self.max_examples]
@@ -66,13 +66,13 @@ class Strategy:
         memory_prompt = "\n\nBased on past interactions:"
 
         if self.best_examples:
-            memory_prompt += "\n\nExamples that worked VERY WELL (high engagement):"
+            memory_prompt += "\n\nExamples that worked VERY WELL, continue on this line (high engagement):"
             for resp, delta in self.best_examples[:5]:
                 truncated = resp[:150] + "..." if len(resp) > 150 else resp
                 memory_prompt += f"\n- {resp} (engagement +{delta:.2f})"
 
         if self.worst_examples:
-            memory_prompt += "\n\nExamples that did NOT work (low engagement):"
+            memory_prompt += "\n\nExamples that did NOT work, do not continue on this line, acknowledge it was not right(low engagement):"
             for resp, delta in self.worst_examples[:3]:
                 truncated = resp[:150] + "..." if len(resp) > 150 else resp
                 memory_prompt += f"\n- {resp} (engagement {delta:.2f})"

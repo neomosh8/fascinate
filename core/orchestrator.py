@@ -312,6 +312,8 @@ class ConversationOrchestrator:
         # Build context vector before selecting strategy
         context_vector = self.bandit_agent._build_context_vector()
 
+        print("context vector:",context_vector)
+
         # 3. Bandit agent selects strategy
         strategy = self.bandit_agent.select_strategy()
 

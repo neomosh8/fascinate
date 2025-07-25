@@ -100,18 +100,34 @@ class ContextualBanditAgent:
             # Zero vector if no AI responses
             vectors.append(np.zeros(1536))
 
-        # 3. Strategy embeddings (normalized)
+        # 3. Strategy embeddings (sequence-aware with position weighting)
         if strategies:
-            strategy_embeddings = [self.embedding_service.embed_strategy(s) for s in strategies]
-            strategy_mean = np.mean(strategy_embeddings, axis=0)
-            # L2 normalize the mean strategy embedding
-            strategy_norm = np.linalg.norm(strategy_mean)
-            if strategy_norm > 1e-8:
-                strategy_mean = strategy_mean / strategy_norm
-            vectors.append(strategy_mean)
+            # Position weights: recent strategies get higher influence
+            pos_weights = [1.0, 0.8, 0.6]  # Most recent first
+            strategy_sequence = []
+
+            for i, strategy in enumerate(strategies):
+                strategy_embed = self.embedding_service.embed_strategy(strategy)
+                # L2 normalize individual strategy
+                strategy_norm = np.linalg.norm(strategy_embed)
+                if strategy_norm > 1e-8:
+                    strategy_embed = strategy_embed / strategy_norm
+
+                # Apply position weight
+                weight = pos_weights[i] if i < len(pos_weights) else 0.4
+                strategy_embed = strategy_embed * weight
+                strategy_sequence.append(strategy_embed)
+
+            # Pad with zeros if we have fewer than 3 strategies
+            while len(strategy_sequence) < 3:
+                strategy_sequence.append(np.zeros(1536))
+
+            # Concatenate sequence (preserves order)
+            strategy_concat = np.concatenate(strategy_sequence)
+            vectors.append(strategy_concat)
         else:
-            # Zero vector if no strategies
-            vectors.append(np.zeros(1536))
+            # Zero vector if no strategies (3 strategy positions)
+            vectors.append(np.zeros(1536 * 3))
 
         # 4. Engagement features (normalized)
         if engagements:
@@ -254,7 +270,7 @@ class ContextualBanditAgent:
         """
         # Split contexts into components
         # Assuming structure: [user_embed(1536) + ai_embed(1536) + strategy_embed(1536) + engagement(6)]
-        TEXT_DIM = 4608  # 3 * 1536
+        TEXT_DIM = 7680  # 3 * 1536
 
         curr_text = current_context[:TEXT_DIM]
         curr_eng = current_context[TEXT_DIM:]

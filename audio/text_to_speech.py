@@ -28,7 +28,7 @@ class TextToSpeech:
         parts.append(strategy.emotion)
 
         if parts:
-            instruction = f"Speak {' and '.join(parts)}. Don't read words in brackets, but match your energy from those words and mimic them, in terms of level, pace, tonality, personality etc"
+            instruction = f"Speak that express the {' and '.join(parts)}. Don't read words in brackets, but match your energy from those words and mimic them, in terms of level, pace, tonality, personality etc, if it is breath , just breath , don't read them"
         else:
             instruction = "Speak in a natural, conversational tone."
 

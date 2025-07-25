@@ -4,6 +4,7 @@ from collections import deque, defaultdict
 from typing import List, Tuple, Optional, Dict
 
 from rl.strategy import Strategy, StrategySpace
+from config import TONES, TOPICS, EMOTIONS, HOOKS
 from .embedding_service import EmbeddingService
 
 
@@ -132,13 +133,13 @@ class ContextualBanditAgent:
 
         if context_type == "auto_advance":
             candidates.extend(self._get_continuation_strategies())
-            engaging_hooks = ["you know what?", "are you with me?", "listen"]
+            engaging_hooks = HOOKS
             for hook in engaging_hooks:
                 candidates.append(
                     Strategy(
-                        tone=random.choice(["playful", "informational"]),
-                        topic=random.choice(["facts", "story"]),
-                        emotion=random.choice(["happy", "serious"]),
+                        tone=random.choice(TONES),
+                        topic=random.choice(TOPICS),
+                        emotion=random.choice(EMOTIONS),
                         hook=hook,
                         index=self.total_selections,
                     )
@@ -175,8 +176,20 @@ class ContextualBanditAgent:
     def _get_safe_starter_strategies(self) -> List[Strategy]:
         """Return a set of safe starter strategies for cold start."""
         starters = [
-            Strategy(tone="calm", topic="facts", emotion="happy", hook="hey [name]", index=0),
-            Strategy(tone="kind", topic="story", emotion="serious", hook="hey [name]", index=0),
+            Strategy(
+                tone="calming",
+                topic="mindfulness",
+                emotion="hopeful",
+                hook=HOOKS[-1],
+                index=0,
+            ),
+            Strategy(
+                tone="supportive",
+                topic="coping strategies",
+                emotion="reassuring",
+                hook=HOOKS[1],
+                index=0,
+            ),
         ]
         return starters
 
@@ -211,10 +224,26 @@ class ContextualBanditAgent:
         """Estimate score for unseen strategies using component priors."""
         base_score = 8.0
         component_bonuses = {
-            'tone': {'calm': 1.5, 'kind': 1.2, 'informational': 1.0, 'playful': 0.8},
-            'topic': {'facts': 1.2, 'story': 1.0, 'nerds': 0.8},
-            'emotion': {'happy': 1.2, 'serious': 1.0, 'whisper': 0.8},
-            'hook': {'hey [name]': 1.0, 'you know what?': 0.9},
+            'tone': {
+                'calming': 1.5,
+                'supportive': 1.3,
+                'encouraging': 1.2,
+                'empathetic': 1.1,
+            },
+            'topic': {
+                'mindfulness': 1.2,
+                'coping strategies': 1.2,
+                'stress management': 1.1,
+            },
+            'emotion': {
+                'hopeful': 1.2,
+                'reassuring': 1.1,
+                'soothing': 1.0,
+            },
+            'hook': {
+                "I'm here to listen": 1.1,
+                'how are you feeling right now?': 1.0,
+            },
         }
 
         for comp, value in [
@@ -227,7 +256,7 @@ class ContextualBanditAgent:
             base_score += bonus
 
         if self.total_selections <= 3:
-            if strategy.tone in ['calm', 'kind'] and strategy.emotion in ['happy', 'serious']:
+            if strategy.tone in ['calming', 'supportive'] and strategy.emotion in ['hopeful', 'reassuring']:
                 base_score += 2.0
 
         return base_score

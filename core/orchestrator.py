@@ -327,6 +327,7 @@ class ConversationOrchestrator:
         """Interrupt AI speech and collect metrics properly."""
         if self.ai_speaking:
             self.logger.info("Interrupting AI speech...")
+            self.ai_speaking = False  # Clear flag immediately
             self.tts.stop()
 
     async def process_turn(self, audio_data: bytes) -> TurnData:

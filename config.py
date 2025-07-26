@@ -60,7 +60,7 @@ MAX_RECORDING_DURATION = 30  # seconds
 
 # Token limits
 # Token limits - Dynamic scaling
-MIN_GPT_TOKENS = 30        # Minimum tokens during warmup
+MIN_GPT_TOKENS = 80        # Minimum tokens during warmup
 MAX_GPT_TOKENS = 180       # Maximum tokens after full ramp-up
 WARMUP_TURNS = 10         # Turns to stay at minimum
 MAX_TURN = 50             # Turn where maximum is reached
@@ -69,7 +69,10 @@ MAX_CONVERSATION_TURNS = 100
 
 # Auto-advance timeout
 AUTO_ADVANCE_TIMEOUT_SEC = 5  # seconds to wait before auto advancing
+HUME_API_KEY = os.getenv("HUME_API_KEY")
 
+# TTS Engine Selection
+TTS_ENGINE = os.getenv("TTS_ENGINE", "openai")  # "openai" or "hume"
 # Contextual Bandit Configuration
 @dataclass
 class ContextualBanditConfig:

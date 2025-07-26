@@ -45,7 +45,7 @@ class RLConfig:
 TONES = ["playful", "confident", "kind", "sarcastic", "informational"]
 TOPICS = ["story", "facts", "controversial", "gen z", "professional"]
 EMOTIONS = ["happy", "serious", "thoughtful", "angry", "flirting"]
-HOOKS = ["hey mosh", "you know what?", "listen", "can you believe it?", "not gonna lie"]
+HOOKS = ["hey maya", "you know what?", "listen", "can you believe it?", "not gonna lie"]
 
 
 # UI Configuration
@@ -56,7 +56,7 @@ GRAPH_UPDATE_INTERVAL = 50  # ms
 # Audio Configuration
 AUDIO_SAMPLE_RATE = 22050
 AUDIO_CHUNK_SIZE = 1024
-MAX_RECORDING_DURATION = 30  # seconds
+MAX_RECORDING_DURATION = 45  # seconds
 
 # Token limits
 # Token limits - Dynamic scaling
@@ -68,7 +68,7 @@ MAX_CONVERSATION_TURNS = 100
 
 
 # Auto-advance timeout
-AUTO_ADVANCE_TIMEOUT_SEC = 5  # seconds to wait before auto advancing
+AUTO_ADVANCE_TIMEOUT_SEC = 7  # seconds to wait before auto advancing
 HUME_API_KEY = os.getenv("HUME_API_KEY")
 
 # TTS Engine Selection

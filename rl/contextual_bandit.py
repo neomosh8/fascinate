@@ -226,7 +226,7 @@ class ContextualBanditAgent:
                 tone="warm",
                 topic="professional",  # Pick any topic from config
                 emotion="talk about how this therapy session will go",
-                hook="hey mosh"  # Pick any hook from config
+                hook="hey maya"  # Pick any hook from config
             ),
             Strategy(
                 index=-1,

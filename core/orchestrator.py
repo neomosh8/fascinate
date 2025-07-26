@@ -88,6 +88,7 @@ class ConversationOrchestrator:
 
         # Track if a turn is actively being processed
         self.turn_in_progress = False
+        self.ai_speaking = False
 
         # UI callbacks
         self.ui_callbacks = ui_callbacks or {}
@@ -276,17 +277,38 @@ class ConversationOrchestrator:
 
         try:
             self.engagement_scorer.start_turn()
+            self.ai_speaking = True
 
             engagement_before = self.engagement_scorer.get_current_engagement()
             emotion_before = self.engagement_scorer.get_current_emotion()
 
             tts_start = time.time()
-            await self.tts.speak(text, strategy, user_emotion, user_engagement,voice='Ava Song',streaming_mode="true_streaming"
-)
-            tts_end = time.time()
-            tts_duration = tts_end - tts_start
 
-            engagement_after, emotion_after = self.engagement_scorer.end_turn(tts_duration)
+            try:
+                await self.tts.speak(
+                    text,
+                    strategy,
+                    user_emotion,
+                    user_engagement,
+                    voice="Ava Song",
+                    streaming_mode="true_streaming",
+                )
+                tts_end = time.time()
+                tts_duration = tts_end - tts_start
+
+                # Normal turn ending
+                engagement_after, emotion_after = self.engagement_scorer.end_turn(tts_duration)
+
+            except Exception as e:
+                tts_end = time.time()
+                tts_duration = tts_end - tts_start
+
+                if getattr(self.tts, "interrupted", False):
+                    self.logger.info("TTS was interrupted, collecting partial metrics")
+                    engagement_after, emotion_after = self.engagement_scorer.end_turn_early(tts_duration)
+                else:
+                    self.logger.error(f"TTS error: {e}")
+                    engagement_after, emotion_after = self.engagement_scorer.end_turn(tts_duration)
 
             self.logger.info(
                 f"Adaptive TTS: {engagement_before:.3f}->{engagement_after:.3f}, "
@@ -297,7 +319,15 @@ class ConversationOrchestrator:
 
         except Exception as e:
             self.logger.error(f"Error during TTS engagement tracking: {e}")
-            return time.time(), time.time(), self.engagement_scorer.get_current_engagement()
+            return time.time(), time.time(), self.engagement_scorer.get_current_engagement(), self.engagement_scorer.get_current_emotion()
+        finally:
+            self.ai_speaking = False
+
+    def interrupt_ai_speech(self):
+        """Interrupt AI speech and collect metrics properly."""
+        if self.ai_speaking:
+            self.logger.info("Interrupting AI speech...")
+            self.tts.stop()
 
     async def process_turn(self, audio_data: bytes) -> TurnData:
         """Process a single conversation turn with turn-based engagement tracking."""
@@ -518,11 +548,17 @@ class ConversationOrchestrator:
                 self.ui_callbacks["update_countdown"](0)
                 await asyncio.sleep(0.1)
 
-            # Final check before firing to prevent race condition
-            if self.auto_advance_task and not self.auto_advance_task.cancelled():
+            # Check if we can auto-advance (not interrupted or already processing)
+            if (
+                self.auto_advance_task
+                and not self.auto_advance_task.cancelled()
+                and not self.turn_in_progress
+                and not self.ai_speaking
+            ):
                 self.logger.info("Auto-advancing conversation (user silent)")
-                # Use await to avoid concurrent processing
-                await self.process_turn(b"")
+                # Create task instead of await to prevent blocking
+                asyncio.create_task(self.process_turn(b""))
+
         except asyncio.CancelledError:
             if "update_countdown" in self.ui_callbacks:
                 self.ui_callbacks["update_countdown"](0)

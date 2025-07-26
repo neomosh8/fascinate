@@ -189,6 +189,37 @@ class TurnBasedEngagementScorer:
 
         return self.current_engagement, self.current_emotion
 
+    def end_turn_early(self, partial_duration: Optional[float] = None) -> Tuple[float, float]:
+        """End turn early due to interruption, but still collect metrics."""
+        if not self.turn_active:
+            return self.current_engagement, self.current_emotion
+
+        if len(self.turn_data) < 100:
+            self.turn_active = False
+            return self.current_engagement, self.current_emotion
+
+        eeg = np.asarray(self.turn_data)
+        ch1 = eeg[:, 0]
+        ch2 = eeg[:, 1]
+
+        if self.baseline_ready:
+            traj = self._calculate_baseline_trajectory(ch1, ch2)
+        else:
+            traj = self._calculate_ratio_trajectory(ch1, ch2)
+
+        final_engagement = traj[-1] if len(traj) else self.current_engagement
+        self.current_engagement = np.clip(final_engagement, 0.0, 1.0)
+
+        self.current_emotion = self._calculate_emotion_from_alpha_asymmetry(ch1, ch2)
+        self.emotion_history.append(self.current_emotion)
+
+        self.turn_idx += 1
+        self.turn_active = False
+
+        print(f"[Turn {self.turn_idx} INTERRUPTED] engagement={self.current_engagement:.3f}, emotion={self.current_emotion:.3f}")
+
+        return self.current_engagement, self.current_emotion
+
     def _band_powers(self, x: np.ndarray, y: np.ndarray) -> Dict[str, float]:
         """Calculate band powers from ALREADY FILTERED data."""
         nyq = EEG_SAMPLE_RATE / 2

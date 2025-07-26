@@ -14,6 +14,7 @@ import re
 import asyncio
 import threading
 import queue
+import logging
 
 from config import (
     WINDOW_WIDTH,
@@ -412,6 +413,9 @@ class PygameConversationUI:
 
     def __init__(self, orchestrator: ConversationOrchestrator):
         self.orchestrator = orchestrator
+
+        # Use orchestrator logger if available
+        self.logger = getattr(self.orchestrator, "logger", logging.getLogger(__name__))
 
         # Initialize pygame
         pygame.init()

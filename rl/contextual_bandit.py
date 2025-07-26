@@ -2,6 +2,7 @@ import numpy as np
 from collections import deque, defaultdict
 from typing import List, Tuple, Optional, Dict
 
+
 from rl.strategy import Strategy, StrategySpace
 from .embedding_service import EmbeddingService
 
@@ -171,12 +172,11 @@ class ContextualBanditAgent:
         user_msg = recent_user_msgs[-1] if recent_user_msgs else ""
         user_spoke = len(user_msg.strip()) > 0 and user_msg != "[Silent]"
         context_type = self._classify_context(user_msg, user_spoke)
-
+        print(context_type)
         if context_type == "cold_start":
             candidates = self._get_safe_starter_strategies()
         elif context_type == "auto_advance":
             candidates = self._get_continuation_strategies()
-            candidates.extend(self._get_hook_focused_strategies())
         else:
             candidates = self._get_top_performing_strategies(5)
             if not candidates:
@@ -222,12 +222,14 @@ class ContextualBanditAgent:
         """Return a set of specific starter strategies."""
         starters = [
             Strategy(
+                index=-1,
                 tone="warm",
                 topic="professional",  # Pick any topic from config
                 emotion="talk about how this therapy session will go",
                 hook="hey mosh"  # Pick any hook from config
             ),
             Strategy(
+                index=-1,
                 tone="warm",
                 topic="facts",
                 emotion="talk about how this therapy session will go",
@@ -236,23 +238,6 @@ class ContextualBanditAgent:
         ]
         return starters
 
-    def _get_hook_focused_strategies(self) -> List[Strategy]:
-        """Return specific strategies with your hardcoded hooks for auto advance."""
-        hooks = [
-            Strategy(
-                tone="confident",  # Pick any tone from config
-                topic="story",  # Pick any topic from config
-                emotion="thoughtful",  # Pick any emotion from config
-                hook="okay, let me explain"
-            ),
-            Strategy(
-                tone="kind",
-                topic="professional",
-                emotion="serious",
-                hook="okay then, let's talk more about this"
-            )
-        ]
-        return hooks
 
     def _calculate_contextual_similarity(self, current_context: np.ndarray, historical_context: np.ndarray) -> float:
         """

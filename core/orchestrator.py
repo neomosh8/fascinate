@@ -86,6 +86,9 @@ class ConversationOrchestrator:
         self.auto_advance_task: Optional[asyncio.Task] = None
         self.auto_advance_timeout = AUTO_ADVANCE_TIMEOUT_SEC
 
+        # Track if a turn is actively being processed
+        self.turn_in_progress = False
+
         # UI callbacks
         self.ui_callbacks = ui_callbacks or {}
 
@@ -298,152 +301,163 @@ class ConversationOrchestrator:
 
     async def process_turn(self, audio_data: bytes) -> TurnData:
         """Process a single conversation turn with turn-based engagement tracking."""
-        # Cancel any auto-advance timer
-        self.cancel_auto_advance_timer()
 
-        turn_start = time.time()
+        # Prevent concurrent turn processing
+        if self.turn_in_progress:
+            self.logger.warning("Turn already in progress, skipping")
+            return
 
-        # 1. Transcribe user speech
-        if audio_data:
-            self.logger.info("Transcribing user speech...")
-            user_text = await self.stt.transcribe(audio_data)
-        else:
-            user_text = ""
-        user_spoke = len(user_text.strip()) > 0
+        self.turn_in_progress = True
+        try:
+            # Cancel any auto-advance timer
+            self.cancel_auto_advance_timer()
 
-        if "update_transcript" in self.ui_callbacks:
-            self.ui_callbacks["update_transcript"](
-                f"User: {user_text if user_spoke else '[Silent]'}"
+            turn_start = time.time()
+
+            # 1. Transcribe user speech
+            if audio_data:
+                self.logger.info("Transcribing user speech...")
+                user_text = await self.stt.transcribe(audio_data)
+            else:
+                user_text = ""
+            user_spoke = len(user_text.strip()) > 0
+
+            if "update_transcript" in self.ui_callbacks:
+                self.ui_callbacks["update_transcript"](
+                    f"User: {user_text if user_spoke else '[Silent]'}"
+                )
+                await asyncio.sleep(0.2)
+    
+            # 2. Get current engagement and emotion before response
+            engagement_before = self.engagement_scorer.get_current_engagement()
+            emotion_before = self.engagement_scorer.get_current_emotion()
+    
+            # Build context vector before selecting strategy
+            context_vector = self.bandit_agent._build_context_vector()
+    
+            print("context vector:",context_vector)
+    
+            # 3. Bandit agent selects strategy
+            if self.therapy_mode:
+                strategy = await self.therapeutic_manager.select_therapeutic_strategy()
+            else:
+                strategy = self.bandit_agent.select_strategy()
+    
+            self.logger.info(
+                f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
             )
-            await asyncio.sleep(0.2)
-
-        # 2. Get current engagement and emotion before response
-        engagement_before = self.engagement_scorer.get_current_engagement()
-        emotion_before = self.engagement_scorer.get_current_emotion()
-
-        # Build context vector before selecting strategy
-        context_vector = self.bandit_agent._build_context_vector()
-
-        print("context vector:",context_vector)
-
-        # 3. Bandit agent selects strategy
-        if self.therapy_mode:
-            strategy = await self.therapeutic_manager.select_therapeutic_strategy()
-        else:
-            strategy = self.bandit_agent.select_strategy()
-
-        self.logger.info(
-            f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
-        )
-
-        # Update UI immediately to show selected strategy before TTS
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, None))
-            await asyncio.sleep(0.5)  # Small delay to ensure update is processed
-
-        # 4. Generate GPT response
-        self.logger.info("Generating response...")
-        assistant_text = await self.gpt.generate_response(user_text, strategy, turn_count=self.turn_count + 1 )
-
-        if "update_transcript" in self.ui_callbacks:
-            self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
-
-        # 5. Speak response with turn-based engagement tracking
-        self.logger.info("Speaking response with turn-based engagement tracking...")
-        tts_start, tts_end, engagement_after, emotion_after = (
-            await self._speak_with_engagement_tracking(
-                assistant_text, strategy, emotion_before, engagement_before
+    
+            # Update UI immediately to show selected strategy before TTS
+            if "update_strategy" in self.ui_callbacks:
+                self.ui_callbacks["update_strategy"]((strategy, None))
+                await asyncio.sleep(0.5)  # Small delay to ensure update is processed
+    
+            # 4. Generate GPT response
+            self.logger.info("Generating response...")
+            assistant_text = await self.gpt.generate_response(user_text, strategy, turn_count=self.turn_count + 1 )
+    
+            if "update_transcript" in self.ui_callbacks:
+                self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")
+    
+            # 5. Speak response with turn-based engagement tracking
+            self.logger.info("Speaking response with turn-based engagement tracking...")
+            tts_start, tts_end, engagement_after, emotion_after = (
+                await self._speak_with_engagement_tracking(
+                    assistant_text, strategy, emotion_before, engagement_before
+                )
             )
-        )
-
-        # 6. Calculate reward using turn-based engagement data
-        session_duration = time.time() - getattr(
-            self, "session_start_time", time.time()
-        )
-        reward = self._calculate_adaptive_reward(
-            engagement_before,
-            engagement_after,
-            tts_end - tts_start,
-            user_spoke,
-            session_duration,
-            user_text,
-            assistant_text,
-            self.bandit_agent._classify_context(user_text, user_spoke),
-        )
-
-        if self.therapy_mode:
-            therapeutic_analysis = await self.therapeutic_manager.process_therapeutic_turn(
-                user_text, assistant_text, engagement_after
+    
+            # 6. Calculate reward using turn-based engagement data
+            session_duration = time.time() - getattr(
+                self, "session_start_time", time.time()
             )
-
-            print(f"📊 Concepts found: {therapeutic_analysis['concepts_found']}")
-            print(f"🎯 Hot concepts: {therapeutic_analysis['hot_concepts']}")
-            print(
-                f"🔄 Session phase: {therapeutic_analysis['session_phase']} (turn {therapeutic_analysis['turn_in_phase']})")
-
-
-
-        # Let strategy learn from this example
-        strategy.add_example(assistant_text, engagement_after - engagement_before)
-
-        # 7. Update bandit agent
-        self.bandit_agent.update(strategy, context_vector, reward)
-
-        # Add turn to context history
-        self.bandit_agent.context.add_turn(
-            user_text, assistant_text, strategy, engagement_after
-        )
-
-        # Send FINAL update to UI with reward
-        if "update_strategy" in self.ui_callbacks:
-            self.ui_callbacks["update_strategy"]((strategy, reward))
-            self.logger.info(f"UI update sent: strategy={strategy.tone}, reward={reward:.3f}")
-            await asyncio.sleep(0.5)  # Small delay to ensure update is processed
-
-
-        # Update state
-        self.last_engagement = engagement_after
-        self.last_emotion = emotion_after
-        self.turn_count += 1
-
-        # Start auto-advance timer
-        self.start_auto_advance_timer()
-
-        # Create turn data (updated for turn-based approach)
-        turn_data = TurnData(
-            user_text=user_text,
-            user_spoke=user_spoke,
-            strategy=strategy,
-            assistant_text=assistant_text,
-            engagement_before=engagement_before,
-            engagement_during_tts=[engagement_after],  # Single value in list for compatibility
-            engagement_after=engagement_after,
-            emotion_before=emotion_before,
-            emotion_after=emotion_after,
-            reward=reward,
-            duration=time.time() - turn_start,
-        )
-
-
-        # Enhanced logging (updated for turn-based approach)
-        self.logger.log_turn(
-            {
-                "turn": self.turn_count,
-                "user_text": user_text,
-                "user_spoke": user_spoke,
-                "strategy": strategy.to_prompt(),
-                "assistant_text": assistant_text,
-                "engagement_before": engagement_before,
-                "engagement_after": engagement_after,
-                "engagement_delta": engagement_after - engagement_before,
-                "reward": reward,
-                "duration": turn_data.duration,
-                "tts_duration": tts_end - tts_start,
-                "turn_based_scoring": True,  # Flag to indicate new scoring method
-            }
-        )
-
-        return turn_data
+            reward = self._calculate_adaptive_reward(
+                engagement_before,
+                engagement_after,
+                tts_end - tts_start,
+                user_spoke,
+                session_duration,
+                user_text,
+                assistant_text,
+                self.bandit_agent._classify_context(user_text, user_spoke),
+            )
+    
+            if self.therapy_mode:
+                therapeutic_analysis = await self.therapeutic_manager.process_therapeutic_turn(
+                    user_text, assistant_text, engagement_after
+                )
+    
+                print(f"📊 Concepts found: {therapeutic_analysis['concepts_found']}")
+                print(f"🎯 Hot concepts: {therapeutic_analysis['hot_concepts']}")
+                print(
+                    f"🔄 Session phase: {therapeutic_analysis['session_phase']} (turn {therapeutic_analysis['turn_in_phase']})")
+    
+    
+    
+            # Let strategy learn from this example
+            strategy.add_example(assistant_text, engagement_after - engagement_before)
+    
+            # 7. Update bandit agent
+            self.bandit_agent.update(strategy, context_vector, reward)
+    
+            # Add turn to context history
+            self.bandit_agent.context.add_turn(
+                user_text, assistant_text, strategy, engagement_after
+            )
+    
+            # Send FINAL update to UI with reward
+            if "update_strategy" in self.ui_callbacks:
+                self.ui_callbacks["update_strategy"]((strategy, reward))
+                self.logger.info(f"UI update sent: strategy={strategy.tone}, reward={reward:.3f}")
+                await asyncio.sleep(0.5)  # Small delay to ensure update is processed
+    
+    
+            # Update state
+            self.last_engagement = engagement_after
+            self.last_emotion = emotion_after
+            self.turn_count += 1
+    
+            # Create turn data (updated for turn-based approach)
+            turn_data = TurnData(
+                user_text=user_text,
+                user_spoke=user_spoke,
+                strategy=strategy,
+                assistant_text=assistant_text,
+                engagement_before=engagement_before,
+                engagement_during_tts=[engagement_after],  # Single value in list for compatibility
+                engagement_after=engagement_after,
+                emotion_before=emotion_before,
+                emotion_after=emotion_after,
+                reward=reward,
+                duration=time.time() - turn_start,
+            )
+    
+    
+            # Enhanced logging (updated for turn-based approach)
+            self.logger.log_turn(
+                {
+                    "turn": self.turn_count,
+                    "user_text": user_text,
+                    "user_spoke": user_spoke,
+                    "strategy": strategy.to_prompt(),
+                    "assistant_text": assistant_text,
+                    "engagement_before": engagement_before,
+                    "engagement_after": engagement_after,
+                    "engagement_delta": engagement_after - engagement_before,
+                    "reward": reward,
+                    "duration": turn_data.duration,
+                    "tts_duration": tts_end - tts_start,
+                    "turn_based_scoring": True,  # Flag to indicate new scoring method
+                }
+            )
+    
+    
+            return turn_data
+        
+        finally:
+            # Clear turn-in-progress flag and restart auto-advance timer
+            self.turn_in_progress = False
+            self.start_auto_advance_timer()
 
     async def run_session(self, client):
         """Run the main conversation session."""
@@ -504,9 +518,11 @@ class ConversationOrchestrator:
                 self.ui_callbacks["update_countdown"](0)
                 await asyncio.sleep(0.1)
 
-            self.logger.info("Auto-advancing conversation (user silent)")
-            empty_audio = b""
-            asyncio.create_task(self.process_turn(empty_audio))
+            # Final check before firing to prevent race condition
+            if self.auto_advance_task and not self.auto_advance_task.cancelled():
+                self.logger.info("Auto-advancing conversation (user silent)")
+                # Use await to avoid concurrent processing
+                await self.process_turn(b"")
         except asyncio.CancelledError:
             if "update_countdown" in self.ui_callbacks:
                 self.ui_callbacks["update_countdown"](0)

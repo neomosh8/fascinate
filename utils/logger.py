@@ -48,6 +48,10 @@ class ConversationLogger:
     def debug(self, message: str):
         self.logger.debug(message)
 
+    def warning(self, message: str):
+        """Log a warning message."""
+        self.logger.warning(message)
+
     def log_session_summary(self, summary_data: dict):
         """Log session summary with performance metrics."""
         self.session_data["summary"] = summary_data

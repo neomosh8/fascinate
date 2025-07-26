@@ -12,6 +12,7 @@ import aiofiles
 import threading
 import queue
 import time
+import logging
 
 from config import OPENAI_API_KEY, TTS_VOICE, HUME_API_KEY, TTS_ENGINE
 from rl.strategy import Strategy
@@ -50,9 +51,11 @@ class StreamingAudioPlayer:
         self.audio_queue = queue.Queue()
         self.playing = False
         self.player_thread = None
+        self.interrupted = False  # Add this flag
 
     def start_playback(self):
         """Start the audio playback stream."""
+        self.interrupted = False  # Reset on start
         self.stream = self.audio.open(
             format=pyaudio.paInt16,
             channels=self.channels,
@@ -68,11 +71,11 @@ class StreamingAudioPlayer:
 
     def _playback_worker(self):
         """Worker thread that continuously plays queued audio chunks."""
-        while self.playing:
+        while self.playing and not self.interrupted:  # Check interrupted flag
             try:
                 # Get audio chunk with timeout
                 audio_chunk = self.audio_queue.get(timeout=0.1)
-                if audio_chunk is None:  # Sentinel to stop
+                if audio_chunk is None or self.interrupted:  # Check interrupted
                     break
                 self.stream.write(audio_chunk)
                 self.audio_queue.task_done()
@@ -84,12 +87,23 @@ class StreamingAudioPlayer:
 
     def queue_audio(self, audio_data: bytes):
         """Queue audio data for immediate playback."""
-        if self.playing:
+        if self.playing and not self.interrupted:  # Check interrupted
             self.audio_queue.put(audio_data)
+
+    def interrupt(self):
+        """Interrupt playback immediately."""
+        self.interrupted = True
+        # Clear the queue
+        while not self.audio_queue.empty():
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def stop_playback(self):
         """Stop playback and cleanup."""
         self.playing = False
+        self.interrupted = True
         self.audio_queue.put(None)  # Sentinel
 
         if self.player_thread:
@@ -101,7 +115,6 @@ class StreamingAudioPlayer:
 
         self.audio.terminate()
 
-
 class TextToSpeech:
     """Handles text-to-speech conversion using OpenAI or Hume with pygame integration."""
 
@@ -110,6 +123,8 @@ class TextToSpeech:
         pygame.mixer.init()
         self.is_playing = False
         self.current_audio_file = None
+        self.interrupted = False
+        self.logger = logging.getLogger(__name__)
 
         # TTS Engine selection
         self.engine = TTS_ENGINE.lower()
@@ -537,6 +552,8 @@ class TextToSpeech:
         float, float]:
         """TRUE streaming with instant mode - plays audio chunks as they arrive using PyAudio."""
 
+        self.interrupted = False
+
         if not self.hume_client:
             return await self._speak_with_openai(text, strategy, user_emotion, user_engagement, voice)
 
@@ -594,6 +611,12 @@ class TextToSpeech:
                         num_generations=1,  # Required for instant mode
                         instant_mode=True  # 🚀 ENABLE INSTANT MODE
                 ):
+                    # Check for interruption MORE frequently
+                    if self.interrupted:
+                        self.logger.info("TTS interrupted by user during streaming")
+                        player.interrupt()  # Interrupt the player immediately
+                        break
+
                     if snippet.audio:
                         audio_chunk = base64.b64decode(snippet.audio)
                         chunk_count += 1
@@ -609,23 +632,33 @@ class TextToSpeech:
                             first_chunk_played = True
                             print(f"🔊 Started playing first audio chunk! ({len(audio_chunk)} bytes)")
 
-                        # Queue this chunk for immediate playback
-                        player.queue_audio(audio_chunk)
-                        if chunk_count <= 3:  # Log first few chunks
-                            print(f"📦 Queued chunk {chunk_count} ({len(audio_chunk)} bytes)")
+                        # Queue this chunk for immediate playback (only if not interrupted)
+                        if not self.interrupted:
+                            player.queue_audio(audio_chunk)
+                            if chunk_count <= 3:  # Log first few chunks
+                                print(f"📦 Queued chunk {chunk_count} ({len(audio_chunk)} bytes)")
+
+                # Handle interruption case
+                if self.interrupted:
+                    print("🛑 Streaming interrupted - stopping immediately")
+                    player.stop_playback()
+                    tts_end = asyncio.get_event_loop().time()
+                    return tts_start or start_time, tts_end
 
                 if not first_chunk_played:
                     raise Exception("No audio chunks received")
 
                 print(f"✅ Finished streaming {chunk_count} chunks")
 
-                # Wait for all queued audio to finish playing
-                await asyncio.sleep(0.3)  # Small buffer for last chunks
-                while not player.audio_queue.empty():
-                    await asyncio.sleep(0.1)
+                # Wait for all queued audio to finish playing (unless interrupted)
+                if not self.interrupted:
+                    await asyncio.sleep(0.3)  # Small buffer for last chunks
+                    while not player.audio_queue.empty() and not self.interrupted:
+                        await asyncio.sleep(0.1)
 
-                # Give a bit more time for the last chunk to finish
-                await asyncio.sleep(trailing_silence)
+                    # Give a bit more time for the last chunk to finish
+                    if not self.interrupted:
+                        await asyncio.sleep(trailing_silence)
 
                 tts_end = asyncio.get_event_loop().time()
 
@@ -634,7 +667,10 @@ class TextToSpeech:
 
                 total_time = tts_end - start_time
                 first_audio_latency = (first_chunk_time - start_time) if first_chunk_time else 0
-                print(f"🎵 Instant mode completed in {total_time:.2f}s (first audio: {first_audio_latency:.3f}s)")
+                if self.interrupted:
+                    print(f"🛑 Instant mode interrupted after {total_time:.2f}s")
+                else:
+                    print(f"🎵 Instant mode completed in {total_time:.2f}s (first audio: {first_audio_latency:.3f}s)")
 
                 return tts_start or start_time, tts_end
 
@@ -643,10 +679,13 @@ class TextToSpeech:
                 raise e
 
         except Exception as e:
-            print(f"True instant streaming error: {e}")
+            if not self.interrupted:  # Don't log interruption as error
+                print(f"True instant streaming error: {e}")
             print("🔄 Falling back to file-based streaming")
             return await self._speak_with_hume_streaming(text, strategy, user_emotion, user_engagement, voice)
-    async def _speak_with_openai(self, text: str, strategy: Strategy, user_emotion: float, user_engagement: float, voice: Optional[str] = None) -> Tuple[float, float]:
+
+    async def _speak_with_openai(self, text: str, strategy: Strategy, user_emotion: float, user_engagement: float,
+                                 voice: Optional[str] = None) -> Tuple[float, float]:
         """Generate speech using OpenAI TTS API (existing method)."""
         voice = voice or TTS_VOICE
 
@@ -685,8 +724,8 @@ class TextToSpeech:
             self.is_playing = True
             tts_start = asyncio.get_event_loop().time()
 
-            # Wait for playback to complete
-            while pygame.mixer.music.get_busy():
+            # Wait for playback to complete with interruption checking
+            while pygame.mixer.music.get_busy() and not self.interrupted:
                 await asyncio.sleep(0.1)
 
             tts_end = asyncio.get_event_loop().time()
@@ -699,12 +738,14 @@ class TextToSpeech:
                 pass
             self.current_audio_file = None
 
+            if self.interrupted:
+                print("🛑 OpenAI TTS interrupted")
+
             return tts_start, tts_end
 
         except Exception as e:
             print(f"OpenAI TTS error: {e}")
             return start_time, start_time
-
     async def speak(
             self,
             text: str,
@@ -744,18 +785,23 @@ class TextToSpeech:
             return await self._speak_with_openai(text, strategy, user_emotion, user_engagement, voice)
 
     def stop(self):
-        """Stop current playback."""
+        """Stop current playback and set interruption flag."""
+        self.interrupted = True
+
+        # Stop pygame audio
         if self.is_playing:
             pygame.mixer.music.stop()
             self.is_playing = False
 
+        # Clean up temp file
         if self.current_audio_file and os.path.exists(self.current_audio_file):
             try:
                 os.unlink(self.current_audio_file)
-            except:
+            except Exception:
                 pass
             self.current_audio_file = None
 
+        self.logger.info("TTS stopped and interrupted")
     def cleanup(self):
         """Clean up audio resources."""
         self.stop()

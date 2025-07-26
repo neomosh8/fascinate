@@ -14,6 +14,7 @@ import re
 import asyncio
 import threading
 import queue
+import logging
 
 from config import (
     WINDOW_WIDTH,
@@ -413,6 +414,9 @@ class PygameConversationUI:
     def __init__(self, orchestrator: ConversationOrchestrator):
         self.orchestrator = orchestrator
 
+        # Use orchestrator logger if available
+        self.logger = getattr(self.orchestrator, "logger", logging.getLogger(__name__))
+
         # Initialize pygame
         pygame.init()
         pygame.freetype.init()
@@ -579,8 +583,13 @@ class PygameConversationUI:
                 self.sphere.update_trending_words(words)
 
     def handle_speak_button_press(self):
-        """Handle speak button press."""
+        """Handle speak button press with interruption support."""
         if not self.is_recording:
+            if self.orchestrator.ai_speaking:
+                self.logger.info("Interrupting AI to let user speak")
+                self.orchestrator.interrupt_ai_speech()
+                pygame.time.wait(100)
+
             self.is_recording = True
             self.orchestrator.cancel_auto_advance_timer()
             # Small delay to ensure cancellation takes effect
@@ -669,6 +678,7 @@ class PygameConversationUI:
                 if event.key == pygame.K_SPACE:
                     if not self.space_pressed:
                         self.space_pressed = True
+                        # This will now handle interruption automatically
                         self.handle_speak_button_press()
                 elif event.key == pygame.K_TAB:
                     self.show_dashboard = not self.show_dashboard

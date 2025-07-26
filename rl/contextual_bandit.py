@@ -190,6 +190,9 @@ class ContextualBanditAgent:
 
         best_strategy = max(candidates, key=score)
         self.total_selections += 1
+        print(context_type,"context type")
+        print(best_strategy,"strategy")
+        print(candidates,"candidates")
         return best_strategy
 
 
@@ -216,24 +219,39 @@ class ContextualBanditAgent:
         return [last_strategy]
 
     def _get_safe_starter_strategies(self) -> List[Strategy]:
-        """Return a set of starter strategies chosen from the strategy space."""
-        safe_tones = {"kind", "informational"}
-        safe_emotions = {"happy", "serious"}
+        """Return a set of specific starter strategies."""
         starters = [
-            s
-            for s in self.strategy_space.strategies
-            if s.tone in safe_tones and s.emotion in safe_emotions
+            Strategy(
+                tone="warm",
+                topic="professional",  # Pick any topic from config
+                emotion="talk about how this therapy session will go",
+                hook="hey mosh"  # Pick any hook from config
+            ),
+            Strategy(
+                tone="warm",
+                topic="facts",
+                emotion="talk about how this therapy session will go",
+                hook="hello there, good to see you! emmm i mean not quite literally , but anyway"
+            )
         ]
-        if not starters:
-            starters = [self.strategy_space.get_random_strategy()]
-        return starters[:2]
+        return starters
 
     def _get_hook_focused_strategies(self) -> List[Strategy]:
-        """Return strategies emphasizing engaging hooks for auto advance."""
-        favored_hooks = {"you know what?", "listen", "can you believe it?"}
-        hooks = [s for s in self.strategy_space.strategies if s.hook in favored_hooks]
-        if not hooks:
-            hooks = [self.strategy_space.get_random_strategy()]
+        """Return specific strategies with your hardcoded hooks for auto advance."""
+        hooks = [
+            Strategy(
+                tone="confident",  # Pick any tone from config
+                topic="story",  # Pick any topic from config
+                emotion="thoughtful",  # Pick any emotion from config
+                hook="okay, let me explain"
+            ),
+            Strategy(
+                tone="kind",
+                topic="professional",
+                emotion="serious",
+                hook="okay then, let's talk more about this"
+            )
+        ]
         return hooks
 
     def _calculate_contextual_similarity(self, current_context: np.ndarray, historical_context: np.ndarray) -> float:

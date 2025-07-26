@@ -278,7 +278,8 @@ class ConversationOrchestrator:
             emotion_before = self.engagement_scorer.get_current_emotion()
 
             tts_start = time.time()
-            await self.tts.speak(text, strategy, user_emotion, user_engagement,voice='shimmer')
+            await self.tts.speak(text, strategy, user_emotion, user_engagement,voice='Ava Song',streaming_mode="true_streaming"
+)
             tts_end = time.time()
             tts_duration = tts_end - tts_start
 

@@ -1,7 +1,7 @@
 """Communication strategy definitions and management."""
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import json
 import itertools
 from config import TONES, TOPICS, EMOTIONS, HOOKS
@@ -39,6 +39,56 @@ class Strategy:
         """Return a compact key for dictionary indexing."""
         return f"{self.tone}|{self.topic}|{self.emotion}|{self.hook}"
 
+    # Add this to rl/strategy.py in the Strategy class
+    def get_emotion_adapted_tts_params(self, user_emotion: float, user_engagement: float) -> Dict[str, float]:
+        """Get TTS parameters adapted for user's emotional state."""
+
+        # Base parameters
+        base_speed = 1.0
+        base_pitch = 0.0
+        base_energy = 1.0
+        base_warmth = 1.0
+
+        # Adjust based on strategy tone
+        if self.tone in ["calm", "empathetic", "gentle"]:
+            base_speed *= 0.9
+            base_warmth *= 1.2
+        elif self.tone in ["confident", "professional"]:
+            base_speed *= 1.1
+            base_energy *= 1.1
+        elif self.tone in ["playful", "friendly"]:
+            base_speed *= 1.05
+            base_energy *= 1.1
+            base_warmth *= 1.1
+
+        # Adjust based on strategy emotion
+        if self.emotion in ["whisper", "sad", "thoughtful"]:
+            base_speed *= 0.85
+            base_energy *= 0.8
+        elif self.emotion in ["happy", "excited"]:
+            base_speed *= 1.15
+            base_energy *= 1.2
+        elif self.emotion in ["angry", "serious"]:
+            base_energy *= 1.1
+            base_pitch -= 0.1
+
+        # Adapt to user state
+        if user_emotion < 0.4:  # User seems down
+            base_speed *= 0.9
+            base_warmth *= 1.3
+        elif user_emotion > 0.6:  # User seems positive
+            base_energy *= 1.1
+
+        if user_engagement < 0.4:  # User disengaged
+            base_energy *= 1.2
+            base_speed *= 1.1
+
+        return {
+            "speed": max(0.7, min(1.3, base_speed)),
+            "pitch": max(-0.3, min(0.3, base_pitch)),
+            "energy": max(0.7, min(1.3, base_energy)),
+            "warmth": max(0.7, min(1.3, base_warmth)),
+        }
     @classmethod
     def from_key(cls, key: str) -> 'Strategy':
         """Reconstruct a Strategy from a key string."""

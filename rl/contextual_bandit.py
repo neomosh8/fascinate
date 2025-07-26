@@ -47,18 +47,11 @@ class ContextualBanditAgent:
 
     def _classify_context(self, user_msg: str, user_spoke: bool) -> str:
         """Classify the current context type for strategy selection."""
+        if self.total_selections == 0:
+            return "cold_start"
         if not user_spoke:
             return "auto_advance"
-        elif not user_msg.strip():
-            return "silent_user"
-        elif self.total_selections <= 3:
-            return "cold_start"
-        elif len(user_msg.split()) <= 3:
-            return "short_response"
-        elif any(word in user_msg.lower() for word in ['?', 'what', 'how', 'why']):
-            return "question"
-        else:
-            return "normal"
+        return "normal"
 
     def classify_current_context(self) -> str:
         recent_user_msgs, _, _, _ = self.context.get_recent_context(1)
@@ -180,47 +173,30 @@ class ContextualBanditAgent:
         user_spoke = len(user_msg.strip()) > 0 and user_msg != "[Silent]"
         context_type = self._classify_context(user_msg, user_spoke)
 
-        candidates = self._generate_context_aware_candidates(context_type)
-        best_strategy = None
-        best_score = float('-inf')
-        for candidate in candidates:
-            score = self._calculate_contextual_ucb(candidate, context_vector)
-            if score > best_score:
-                best_score = score
-                best_strategy = candidate
-        return best_strategy or self.strategy_space.get_random_strategy()
-
-    def _generate_candidates(self) -> List[Strategy]:
-        candidates = []
-        candidates.extend(self._get_top_performing_strategies(5))
-        candidates.extend(self._get_contextually_similar_strategies(5))
-        for _ in range(10):
-            candidates.append(self.strategy_space.get_random_strategy())
-        return candidates
-
-    def _generate_context_aware_candidates(self, context_type: str) -> List[Strategy]:
-        """Generate candidate strategies based on the classified context."""
-        candidates: List[Strategy] = []
-
-        if context_type == "auto_advance":
-            candidates.extend(self._get_continuation_strategies())
-            engaging_hooks = ["you know what?", "are you with me?", "listen"]
-            for hook in engaging_hooks:
-                candidates.append(
-                    Strategy(
-                        tone=random.choice(["playful", "informational"]),
-                        topic=random.choice(["facts", "story"]),
-                        emotion=random.choice(["happy", "serious"]),
-                        hook=hook,
-                        index=self.total_selections,
-                    )
+        if context_type == "cold_start":
+            candidates = self._get_safe_starter_strategies()
+        elif context_type == "auto_advance":
+            candidates = self._get_continuation_strategies() + [
+                Strategy(
+                    tone=random.choice(["playful", "informational"]),
+                    topic=random.choice(["facts", "story"]),
+                    emotion=random.choice(["happy", "serious"]),
+                    hook=hook,
+                    index=self.total_selections,
                 )
-        elif context_type == "cold_start":
-            candidates.extend(self._get_safe_starter_strategies())
+                for hook in ["you know what?", "are you with me?", "listen"]
+            ]
+        else:
+            candidates = self._get_top_performing_strategies(5)
+            if not candidates:
+                candidates.append(self.strategy_space.get_random_strategy())
 
-        # Base candidates from historical performance and randomness
-        candidates.extend(self._generate_candidates())
-        return candidates
+        best_strategy = max(
+            candidates,
+            key=lambda cand: self._calculate_contextual_ucb(cand, context_vector),
+        )
+        return best_strategy
+
 
     def _get_top_performing_strategies(self, n: int) -> List[Strategy]:
         strategy_avgs = []

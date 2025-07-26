@@ -164,14 +164,15 @@ class ContextualBanditAgent:
     # Strategy selection
     # ------------------------------------------------------------------
     def select_strategy(self) -> Strategy:
-        self.total_selections += 1
         context_vector = self._build_context_vector()
 
-        # Determine context type for smarter candidate generation
+        # Determine context type for smarter candidate generation before
+        # incrementing selections so the cold start case triggers correctly.
         recent_user_msgs, _, _, _ = self.context.get_recent_context(1)
         user_msg = recent_user_msgs[-1] if recent_user_msgs else ""
         user_spoke = len(user_msg.strip()) > 0 and user_msg != "[Silent]"
         context_type = self._classify_context(user_msg, user_spoke)
+        self.total_selections += 1
 
         if context_type == "cold_start":
             candidates = self._get_safe_starter_strategies()

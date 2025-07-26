@@ -583,6 +583,8 @@ class PygameConversationUI:
         if not self.is_recording:
             self.is_recording = True
             self.orchestrator.cancel_auto_advance_timer()
+            # Small delay to ensure cancellation takes effect
+            pygame.time.wait(50)
             self.orchestrator.stt.start_recording()
 
     def handle_speak_button_release(self):

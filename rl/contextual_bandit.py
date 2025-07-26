@@ -1,5 +1,4 @@
 import numpy as np
-import random
 from collections import deque, defaultdict
 from typing import List, Tuple, Optional, Dict
 
@@ -172,30 +171,25 @@ class ContextualBanditAgent:
         user_msg = recent_user_msgs[-1] if recent_user_msgs else ""
         user_spoke = len(user_msg.strip()) > 0 and user_msg != "[Silent]"
         context_type = self._classify_context(user_msg, user_spoke)
-        self.total_selections += 1
 
         if context_type == "cold_start":
             candidates = self._get_safe_starter_strategies()
         elif context_type == "auto_advance":
-            candidates = self._get_continuation_strategies() + [
-                Strategy(
-                    tone=random.choice(["playful", "informational"]),
-                    topic=random.choice(["facts", "story"]),
-                    emotion=random.choice(["happy", "serious"]),
-                    hook=hook,
-                    index=self.total_selections,
-                )
-                for hook in ["you know what?", "are you with me?", "listen"]
-            ]
+            candidates = self._get_continuation_strategies()
+            candidates.extend(self._get_hook_focused_strategies())
         else:
             candidates = self._get_top_performing_strategies(5)
             if not candidates:
                 candidates.append(self.strategy_space.get_random_strategy())
 
-        best_strategy = max(
-            candidates,
-            key=lambda cand: self._calculate_contextual_ucb(cand, context_vector),
-        )
+        def score(cand: Strategy) -> float:
+            key = cand.to_key()
+            contexts = self.strategy_contexts.get(key, [])
+            rewards = self.strategy_rewards.get(key, [])
+            return self._predict_contextual_reward(cand, context_vector, contexts, rewards)
+
+        best_strategy = max(candidates, key=score)
+        self.total_selections += 1
         return best_strategy
 
 
@@ -222,23 +216,25 @@ class ContextualBanditAgent:
         return [last_strategy]
 
     def _get_safe_starter_strategies(self) -> List[Strategy]:
-        """Return a set of safe starter strategies for cold start."""
+        """Return a set of starter strategies chosen from the strategy space."""
+        safe_tones = {"kind", "informational"}
+        safe_emotions = {"happy", "serious"}
         starters = [
-            Strategy(tone="calm", topic="facts", emotion="happy", hook="hey [name]", index=0),
-            Strategy(tone="kind", topic="story", emotion="serious", hook="hey [name]", index=0),
+            s
+            for s in self.strategy_space.strategies
+            if s.tone in safe_tones and s.emotion in safe_emotions
         ]
-        return starters
+        if not starters:
+            starters = [self.strategy_space.get_random_strategy()]
+        return starters[:2]
 
-    def _calculate_contextual_ucb(self, strategy: Strategy, context_vector: np.ndarray) -> float:
-        key = strategy.to_key()
-        if key not in self.strategy_rewards or not self.strategy_rewards[key]:
-            return self._calculate_cold_start_score(strategy, context_vector)
-        rewards = self.strategy_rewards[key]
-        contexts = self.strategy_contexts[key]
-        predicted_reward = self._predict_contextual_reward(strategy, context_vector, contexts, rewards)
-        n = len(rewards)
-        confidence_bonus = 2.0 * np.sqrt(np.log(self.total_selections) / n)
-        return predicted_reward + confidence_bonus
+    def _get_hook_focused_strategies(self) -> List[Strategy]:
+        """Return strategies emphasizing engaging hooks for auto advance."""
+        favored_hooks = {"you know what?", "listen", "can you believe it?"}
+        hooks = [s for s in self.strategy_space.strategies if s.hook in favored_hooks]
+        if not hooks:
+            hooks = [self.strategy_space.get_random_strategy()]
+        return hooks
 
     def _calculate_contextual_similarity(self, current_context: np.ndarray, historical_context: np.ndarray) -> float:
         """
@@ -318,30 +314,6 @@ class ContextualBanditAgent:
             predicted_reward = float(np.mean(top_rewards))
 
         return predicted_reward
-    def _calculate_cold_start_score(self, strategy: Strategy, context_vector: np.ndarray) -> float:
-        """Estimate score for unseen strategies using component priors."""
-        base_score = 8.0
-        component_bonuses = {
-            'tone': {'calm': 1.5, 'kind': 1.2, 'informational': 1.0, 'playful': 0.8},
-            'topic': {'facts': 1.2, 'story': 1.0, 'nerds': 0.8},
-            'emotion': {'happy': 1.2, 'serious': 1.0, 'whisper': 0.8},
-            'hook': {'hey [name]': 1.0, 'you know what?': 0.9},
-        }
-
-        for comp, value in [
-            ('tone', strategy.tone),
-            ('topic', strategy.topic),
-            ('emotion', strategy.emotion),
-            ('hook', strategy.hook),
-        ]:
-            bonus = component_bonuses.get(comp, {}).get(value, 0.5)
-            base_score += bonus
-
-        if self.total_selections <= 3:
-            if strategy.tone in ['calm', 'kind'] and strategy.emotion in ['happy', 'serious']:
-                base_score += 2.0
-
-        return base_score
 
     # ------------------------------------------------------------------
     # Updating

@@ -156,28 +156,44 @@ class TextToSpeech:
 
             # Map strategy components to precise, concise terms
             tone_instructions = {
-                "professional": "confident, professional tone",
-                "friendly": "warm, inviting",
-                "empathetic": "gentle, understanding",
-                "playful": "lighthearted, playful",
-                "confident": "assertive, self-assured",
-                "kind": "caring, nurturing",
-                "sarcastic": "sarcastic, dry",
-                "informational": "clear, instructional",
-                "calm": "calm, measured",
-            }
+                "professional": "composed, authoritative presence",
+                "friendly": "warm, welcoming energy",
+                "empathetic": "compassionate, deeply understanding",
+                "playful": "gentle humor, lighthearted warmth",
+                "confident": "steady, reassuring presence",
+                "kind": "tender, nurturing care",
+                "sarcastic": "subtle irony, knowing smile",
+                "informational": "clear, educational guidance",
+                "calm": "serene, grounding presence",
 
+                # Additional therapeutic tones
+                "validating": "accepting, affirming presence",
+                "gentle": "soft, careful approach",
+                "reflective": "thoughtful, contemplative",
+                "supportive": "encouraging, uplifting",
+                "curious": "interested, gently probing",
+            }
+            #also approach for therapeutic
             emotion_instructions = {
-                "happy": "cheerful, upbeat",
-                "serious": "serious, focused",
-                "thoughtful": "contemplative, reflective",
-                "angry": "frustrated, intense",
-                "flirting": "playful, charming",
-                "sad": "melancholy, subdued",
-                "scared": "nervous, cautious",
-                "worried": "concerned, anxious",
-                "whisper": "whispering, hushed",
-                "laughter": "amused, laughing",
+                # Original emotions
+                "happy": "joyful, radiant energy",
+                "serious": "focused, weighty presence",
+                "thoughtful": "contemplative, reflective pause",
+                "angry": "controlled intensity, firm",
+                "flirting": "playful charm, teasing warmth",
+                "sad": "gentle melancholy, tender",
+                "scared": "cautious, protective whisper",
+                "worried": "concerned, attentive care",
+                "whisper": "intimate, hushed confidence",
+                "laughter": "amused, joyful lightness",
+
+                # Therapeutic approaches
+                "cognitive": "structured, clear reasoning",
+                "mindful": "present, grounded awareness",
+                "exploratory": "curious, gentle discovery",
+                "validating": "accepting, affirming truth",
+                "somatic": "body-aware, gentle attunement",
+                "narrative": "story-weaving, reflective",
             }
 
             # Build concise acting instruction
@@ -191,76 +207,20 @@ class TextToSpeech:
 
             # Add user state adaptations (very concise)
             if user_emotion < 0.4:
-                instructions.append("extra gentle")
+                instructions.append("extra tender, protective")
             elif user_emotion > 0.6:
-                if "upbeat" not in " ".join(instructions):
-                    instructions.append("encouraging")
+                instructions.append("upbeat and energetic")
 
             if user_engagement < 0.4:
-                instructions.append("engaging, varied")
+                instructions.append("drawing them in, captivating")
+            elif user_engagement > 0.7:  # High engagement
+                instructions.append("building momentum")
 
             # Combine and ensure ≤100 characters
             acting_instruction = ", ".join(instructions)
-            if len(acting_instruction) > 95:
-                # Prioritize most important elements
-                primary = instructions[0] if instructions else "natural"
-                acting_instruction = primary[:95]
 
             return acting_instruction
 
-        else:
-            # VOICE GENERATION: Detailed description to create new voice (≤1000 chars)
-            voice_parts = []
-
-            # Detailed voice generation descriptions
-            voice_generation_map = {
-                "professional": "A confident business professional with authoritative presence and clear articulation",
-                "friendly": "A warm, approachable person with genuine enthusiasm and welcoming energy",
-                "empathetic": "A compassionate counselor with gentle, understanding vocal quality",
-                "playful": "An energetic, fun-loving individual with spontaneous, lighthearted delivery",
-                "confident": "A self-assured speaker with strong vocal presence and commanding delivery",
-                "kind": "A nurturing, caring individual with warm, supportive vocal characteristics",
-                "sarcastic": "A witty speaker with subtle irony and intelligent, dry humor",
-                "informational": "A knowledgeable educator with clear, objective presentation style",
-                "calm": "A serene, peaceful speaker with composed, tranquil delivery",
-            }
-
-            emotion_generation_map = {
-                "happy": "expressing natural joy and positive energy",
-                "serious": "with focused, thoughtful gravity",
-                "thoughtful": "with contemplative, reflective depth",
-                "angry": "capable of controlled intensity when needed",
-                "flirting": "with subtle charm and engaging warmth",
-                "sad": "able to convey gentle melancholy authentically",
-                "scared": "expressing cautious uncertainty naturally",
-                "worried": "showing genuine concern and attentiveness",
-                "whisper": "capable of intimate, soft delivery",
-                "laughter": "with infectious, joyful expressiveness",
-            }
-
-            # Build voice generation prompt
-            base_tone = strategy.tone.lower()
-            if base_tone in voice_generation_map:
-                voice_parts.append(voice_generation_map[base_tone])
-
-            base_emotion = strategy.emotion.lower()
-            if base_emotion in emotion_generation_map:
-                voice_parts.append(emotion_generation_map[base_emotion])
-
-            # Add context based on user state
-            if user_emotion < 0.4:
-                voice_parts.append("especially skilled at providing comfort and reassurance")
-            elif user_emotion > 0.6:
-                voice_parts.append("able to match and enhance positive energy naturally")
-
-            # Combine for voice generation (can be longer)
-            voice_description = ", ".join(voice_parts)
-
-            # Ensure within 1000 character limit
-            if len(voice_description) > 950:
-                voice_description = voice_description[:947] + "..."
-
-            return voice_description
 
     def _get_hume_speed_from_strategy(self, strategy: Strategy, user_emotion: float, user_engagement: float) -> float:
         """Calculate Hume speed parameter (0.25-3.0) from strategy."""
@@ -437,116 +397,6 @@ class TextToSpeech:
             print("🔄 Falling back to OpenAI TTS")
             return await self._speak_with_openai(text, strategy, user_emotion, user_engagement, voice)
 
-    async def _speak_with_hume_streaming(self, text: str, strategy: Strategy, user_emotion: float,
-                                         user_engagement: float, voice: Optional[str] = None) -> Tuple[float, float]:
-        """Generate speech using Hume streaming TTS with instant mode for ultra-low latency."""
-
-        if not self.hume_client:
-            print("❌ Hume client not available")
-            return await self._speak_with_openai(text, strategy, user_emotion, user_engagement, voice)
-
-        # Determine if we're using a voice
-        has_voice = voice is not None
-
-        # For instant mode, we MUST have a voice - fallback to default if none provided
-        if not voice:
-            voice = "Ava Song"  # Default voice for instant mode
-            has_voice = True
-            print("🚀 Using default voice 'Ava Song' for instant mode")
-
-        # Generate description following Hume best practices
-        description = self._strategy_to_hume_description(strategy, user_emotion, user_engagement, has_voice)
-
-        # Calculate Hume-specific parameters
-        hume_speed = self._get_hume_speed_from_strategy(strategy, user_emotion, user_engagement)
-        trailing_silence = self._get_trailing_silence_from_strategy(strategy)
-
-        print(f"🎤 Hume Instant Streaming Acting: {description}")
-        print(f"⚡ Speed: {hume_speed:.2f}, Silence: {trailing_silence:.1f}s")
-        print(f"🗣️ Text: {text[:100]}...")
-
-        start_time = asyncio.get_event_loop().time()
-
-        try:
-            # Create utterance with all parameters following Hume best practices
-            utterance_params = {
-                "text": text,
-                "description": description,
-                "speed": hume_speed,
-                "trailing_silence": trailing_silence,
-                "voice": PostedUtteranceVoiceWithName(
-                    name=voice,
-                    provider="HUME_AI"
-                )
-            }
-
-            utterance = PostedUtterance(**utterance_params)
-
-            # Collect all audio chunks from streaming with instant mode
-            audio_chunks = []
-            chunk_count = 0
-            first_chunk_time = None
-
-            async for snippet in self.hume_client.tts.synthesize_json_streaming(
-                    utterances=[utterance],
-                    format=FormatWav(),  # Use WAV for better compatibility
-                    num_generations=1,  # Required for instant mode
-                    instant_mode=True  # 🚀 ENABLE INSTANT MODE
-            ):
-                if snippet.audio:
-                    if chunk_count == 0:
-                        first_chunk_time = asyncio.get_event_loop().time()
-                        latency = first_chunk_time - start_time
-                        print(f"⚡ First chunk received in {latency:.3f}s (instant mode)")
-
-                    audio_chunks.append(base64.b64decode(snippet.audio))
-                    chunk_count += 1
-                    if chunk_count == 1:
-                        print("🌊 Started receiving audio chunks...")
-
-            if not audio_chunks:
-                raise Exception("No audio chunks received from Hume instant streaming")
-
-            print(f"📦 Collected {len(audio_chunks)} audio chunks")
-
-            # Combine all chunks
-            combined_audio = b''.join(audio_chunks)
-
-            # Write to temporary file
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-            temp_file.write(combined_audio)
-            temp_file.close()
-
-            self.current_audio_file = temp_file.name
-
-            # Play audio with pygame
-            pygame.mixer.music.load(self.current_audio_file)
-            pygame.mixer.music.play()
-
-            self.is_playing = True
-            tts_start = asyncio.get_event_loop().time()
-
-            # Wait for playback to complete
-            while pygame.mixer.music.get_busy():
-                await asyncio.sleep(0.1)
-
-            tts_end = asyncio.get_event_loop().time()
-            self.is_playing = False
-
-            # Clean up temp file
-            try:
-                os.unlink(self.current_audio_file)
-            except:
-                pass
-            self.current_audio_file = None
-
-            return tts_start, tts_end
-
-        except Exception as e:
-            print(f"Hume instant streaming TTS error: {e}")
-            print("🔄 Falling back to regular Hume TTS")
-            return await self._speak_with_hume(text, strategy, user_emotion, user_engagement, voice)
-
     async def _speak_with_hume_true_streaming(self, text: str, strategy: Strategy, user_emotion: float,
                                               user_engagement: float, voice: Optional[str] = None) -> Tuple[
         float, float]:
@@ -559,7 +409,7 @@ class TextToSpeech:
 
         if not PYAUDIO_AVAILABLE:
             print("⚠️ PyAudio not available, falling back to file-based streaming")
-            return await self._speak_with_hume_streaming(text, strategy, user_emotion, user_engagement, voice)
+            return await self._speak_with_hume(text, strategy, user_emotion, user_engagement, voice)
 
         # For instant mode, we MUST have a voice - fallback to default if none provided
         if not voice:
@@ -682,7 +532,7 @@ class TextToSpeech:
             if not self.interrupted:  # Don't log interruption as error
                 print(f"True instant streaming error: {e}")
             print("🔄 Falling back to file-based streaming")
-            return await self._speak_with_hume_streaming(text, strategy, user_emotion, user_engagement, voice)
+            return await self._speak_with_hume(text, strategy, user_emotion, user_engagement, voice)
 
     async def _speak_with_openai(self, text: str, strategy: Strategy, user_emotion: float, user_engagement: float,
                                  voice: Optional[str] = None) -> Tuple[float, float]:
@@ -777,8 +627,6 @@ class TextToSpeech:
         if self.engine == "hume" and self.hume_client:
             if streaming_mode == "true_streaming":
                 return await self._speak_with_hume_true_streaming(text, strategy, user_emotion, user_engagement, voice)
-            elif streaming_mode == "streaming":
-                return await self._speak_with_hume_streaming(text, strategy, user_emotion, user_engagement, voice)
             else:  # standard - allows dynamic voice generation
                 return await self._speak_with_hume(text, strategy, user_emotion, user_engagement, voice)
         else:

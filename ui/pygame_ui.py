@@ -823,8 +823,8 @@ class PygameConversationUI:
 
     def update_audio_level(self):
         """Update audio level for sphere visualization."""
-        # Simple audio level simulation - could be enhanced with actual audio analysis
-        if pygame.mixer.music.get_busy():
+        # Check both pygame audio AND orchestrator AI speaking state
+        if pygame.mixer.music.get_busy() or self.orchestrator.ai_speaking:
             self.audio_level = random.uniform(0.3, 0.8)
         else:
             self.audio_level *= 0.95  # Decay when no audio

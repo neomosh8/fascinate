@@ -24,6 +24,9 @@ from config import (
 )
 from core.orchestrator import ConversationOrchestrator
 from ui.bandit_visualizer import BanditVisualizationDashboard
+import math
+import random
+from typing import Dict, List, Tuple, Optional
 
 FONT_PATH = "DejaVuSans.ttf"      # relative path to the TTF you downloaded
 
@@ -450,6 +453,9 @@ class PygameConversationUI:
         self.engagement_widget = EngagementWidget(self.screen_width - 220, 20, 200, 120)
         self.eeg_widget = EEGPlotWidget(20, 20, 300, 120)
 
+        self.concept_widget = ConceptVisualizationWidget(
+            self.screen_width - 450, 150, 430, 400
+        )
         # Bandit visualization dashboard
         self.bandit_dashboard = BanditVisualizationDashboard(self.screen_width, self.screen_height)
         self.show_dashboard = True
@@ -680,6 +686,8 @@ class PygameConversationUI:
                         self.space_pressed = True
                         # This will now handle interruption automatically
                         self.handle_speak_button_press()
+                elif event.key == pygame.K_q:  # NEW
+                    self.concept_widget.toggle_visibility()
                 elif event.key == pygame.K_TAB:
                     self.show_dashboard = not self.show_dashboard
                 elif event.key == pygame.K_p:
@@ -834,7 +842,11 @@ class PygameConversationUI:
         # Draw engagement widget
         self.engagement_widget.draw(self.screen)
         self.eeg_widget.draw(self.screen)
-
+        # NEW: Update and draw concept widget
+        if hasattr(self.orchestrator, 'therapeutic_manager'):
+            concept_tracker = self.orchestrator.therapeutic_manager.concept_tracker
+            self.concept_widget.update(concept_tracker)
+            self.concept_widget.draw(self.screen, concept_tracker)
         # Draw messages
         for message in self.messages:
             if message and message.active:
@@ -915,6 +927,234 @@ class PygameConversationUI:
 
         pygame.quit()
 
+
+class ConceptVisualizationWidget:
+    """Real-time concept tracking with emotional word cloud."""
+
+    def __init__(self, x: int, y: int, width: int, height: int):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        self.visible = False
+
+        # Fonts for different sizes
+        self.font_large = pygame.freetype.Font(FONT_PATH, 24)
+        self.font_medium = pygame.freetype.Font(FONT_PATH, 18)
+        self.font_small = pygame.freetype.Font(FONT_PATH, 14)
+        self.font_tiny = pygame.freetype.Font(FONT_PATH, 12)
+
+        # Animation
+        self.pulse_timer = 0
+        self.fade_alpha = 0
+        self.target_alpha = 0
+
+        # Word positioning
+        self.word_positions = {}
+        self.last_update_time = 0
+
+    def toggle_visibility(self):
+        """Toggle widget visibility with fade animation."""
+        self.visible = not self.visible
+        self.target_alpha = 255 if self.visible else 0
+
+    def get_concept_color(self, avg_engagement: float, avg_emotion: float, emotional_intensity: float) -> Tuple[
+        int, int, int]:
+        """Get color based ONLY on emotion: red=negative, gray=neutral, green=positive."""
+
+        if avg_emotion < 0.4:  # Negative emotion
+            # Scale red intensity based on how negative (0.4 to 0.0 maps to light red to bright red)
+            intensity = int(255 * (0.4 - avg_emotion) / 0.4)  # 0.4→0, 0.0→255
+            return (255, max(50, 255 - intensity), max(50, 255 - intensity))  # Red with some green/blue
+
+        elif avg_emotion > 0.6:  # Positive emotion
+            # Scale green intensity based on how positive (0.6 to 1.0 maps to light green to bright green)
+            intensity = int(255 * (avg_emotion - 0.6) / 0.4)  # 0.6→0, 1.0→255
+            return (max(50, 255 - intensity), 255, max(50, 255 - intensity))  # Green with some red/blue
+
+        else:  # Neutral emotion (0.4 to 0.6)
+            return (180, 180, 180)  # Gray
+
+    def get_font_size(self, avg_engagement: float, emotional_intensity: float) -> pygame.freetype.Font:
+        """Get font size based ONLY on engagement."""
+
+        if avg_engagement > 0.8:
+            return self.font_large  # 24px
+        elif avg_engagement > 0.6:
+            return self.font_medium  # 18px
+        elif avg_engagement > 0.4:
+            return self.font_small  # 14px
+        else:
+            return self.font_tiny  # 12px
+
+    def calculate_word_position(self, word: str, font: pygame.freetype.Font, attempt: int = 0) -> Tuple[int, int]:
+        """Calculate non-overlapping position for word."""
+        text_surface, text_rect = font.render(word, (255, 255, 255))
+        word_width, word_height = text_rect.width, text_rect.height
+
+        # Try to find non-overlapping position
+        max_attempts = 20
+        for _ in range(max_attempts):
+            if attempt == 0:  # First placement - try center area
+                x = random.randint(self.rect.width // 4, 3 * self.rect.width // 4 - word_width)
+                y = random.randint(self.rect.height // 4, 3 * self.rect.height // 4 - word_height)
+            else:  # Subsequent attempts - anywhere
+                x = random.randint(10, self.rect.width - word_width - 10)
+                y = random.randint(30, self.rect.height - word_height - 10)  # Leave space for title
+
+            # Check for overlaps with existing words
+            new_rect = pygame.Rect(x, y, word_width, word_height)
+            overlap = False
+
+            for existing_word, (ex_x, ex_y, ex_w, ex_h) in self.word_positions.items():
+                existing_rect = pygame.Rect(ex_x, ex_y, ex_w, ex_h)
+                if new_rect.colliderect(existing_rect):
+                    overlap = True
+                    break
+
+            if not overlap:
+                return x, y
+
+        # If no non-overlapping position found, return random position
+        return (random.randint(10, self.rect.width - word_width - 10),
+                random.randint(30, self.rect.height - word_height - 10))
+
+    def update(self, concept_tracker):
+        """Update concept visualization with latest data."""
+        current_time = time.time()
+        self.pulse_timer += 1
+
+        # Update fade animation
+        if self.fade_alpha < self.target_alpha:
+            self.fade_alpha = min(self.fade_alpha + 15, self.target_alpha)
+        elif self.fade_alpha > self.target_alpha:
+            self.fade_alpha = max(self.fade_alpha - 15, self.target_alpha)
+
+        # FIXED: Only clean up positions for concepts that no longer exist
+        # Don't constantly clear all positions
+        if hasattr(concept_tracker, 'concept_activations'):
+            current_concepts = set(concept_tracker.concept_activations.keys())
+            # Remove positions for concepts that no longer exist
+            self.word_positions = {
+                concept: pos for concept, pos in self.word_positions.items()
+                if concept in current_concepts
+            }
+
+    def draw(self, screen: pygame.Surface, concept_tracker):
+        """Draw the concept visualization."""
+        if not self.visible or self.fade_alpha <= 0:
+            return
+
+        # Clear surface
+        self.surface.fill((0, 0, 0, 0))
+
+        # Draw semi-transparent background
+        bg_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+        bg_surface.fill((20, 25, 30, 200))
+        self.surface.blit(bg_surface, (0, 0))
+
+        # Draw border
+        border_color = (100, 255, 150, 180)
+        pygame.draw.rect(self.surface, border_color, self.surface.get_rect(), width=2, border_radius=8)
+
+        # Title
+        title_font = pygame.freetype.Font(None, 16)
+        title_font.render_to(self.surface, (10, 8), "CONCEPT TRACKER (Q to toggle)", (150, 255, 150))
+
+        # Get concept data
+        if not hasattr(concept_tracker, 'concept_activations'):
+            # No data yet
+            no_data_font = pygame.freetype.Font(None, 14)
+            no_data_font.render_to(self.surface, (20, 40), "No concepts tracked yet...", (150, 150, 150))
+            self._draw_legend()
+        else:
+            # Sort concepts by importance (engagement * intensity) for consistent ordering
+            concept_items = []
+            for concept, engagement_scores in concept_tracker.concept_activations.items():
+                if len(engagement_scores) >= 1:
+                    avg_engagement = np.mean(engagement_scores)
+
+                    # Get emotional data
+                    if hasattr(concept_tracker, 'concept_emotions') and concept in concept_tracker.concept_emotions:
+                        emotion_scores = concept_tracker.concept_emotions[concept]
+                        emotional_intensity = np.mean([abs(e - 0.5) * 2 for e in emotion_scores])
+                    else:
+                        emotional_intensity = 0.0
+
+                    importance = avg_engagement * (1 + emotional_intensity)
+                    concept_items.append((concept, importance, avg_engagement, emotional_intensity))
+
+            # Sort by importance (most important first) for consistent ordering
+            concept_items.sort(key=lambda x: x[1], reverse=True)
+
+            # Draw concepts
+            max_concepts = 15
+            for i, (concept, importance, avg_engagement, emotional_intensity) in enumerate(
+                    concept_items[:max_concepts]):
+                # Get emotional data
+                if hasattr(concept_tracker, 'concept_emotions') and concept in concept_tracker.concept_emotions:
+                    emotion_scores = concept_tracker.concept_emotions[concept]
+                    avg_emotion = np.mean(emotion_scores)
+                else:
+                    avg_emotion = 0.5
+
+                # Get color and font
+                color = self.get_concept_color(avg_engagement, avg_emotion, emotional_intensity)
+                font = self.get_font_size(avg_engagement, emotional_intensity)
+
+                # Add pulsing effect for high-intensity concepts
+                if avg_engagement > 0.7 and emotional_intensity > 0.6:
+                    pulse = math.sin(self.pulse_timer * 0.1) * 0.3 + 0.7
+                    color = tuple(int(c * pulse) for c in color)
+
+                # FIXED: Only calculate position if concept doesn't have one yet
+                if concept not in self.word_positions:
+                    text_surface, text_rect = font.render(concept, color)
+                    x, y = self.calculate_word_position(concept, font, i)
+                    self.word_positions[concept] = (x, y, text_rect.width, text_rect.height)
+
+                # Draw word at its STABLE position
+                x, y, w, h = self.word_positions[concept]
+                font.render_to(self.surface, (x, y), concept, color)
+
+                # Draw small stats
+                engagement_scores = concept_tracker.concept_activations[concept]
+                stats_text = f"e:{avg_engagement:.2f} m:{len(engagement_scores)}"
+                stats_font = pygame.freetype.Font(None, 10)
+                stats_font.render_to(self.surface, (x, y + h + 2), stats_text, (100, 100, 100))
+
+            # Draw legend
+            self._draw_legend()
+
+        # Apply fade alpha
+        if self.fade_alpha < 255:
+            fade_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+            fade_surface.fill((0, 0, 0, 255 - self.fade_alpha))
+            self.surface.blit(fade_surface, (0, 0))
+
+        # Blit to screen
+        screen.blit(self.surface, self.rect)
+
+    def _draw_legend(self):
+        """Draw simplified color legend."""
+        legend_y = self.rect.height - 60
+        legend_font = pygame.freetype.Font(None, 10)
+
+        legend_items = [
+            ("SIZE = Engagement Level", (255, 255, 255)),
+            ("Red = Negative Emotion", (255, 100, 100)),
+            ("Gray = Neutral Emotion", (180, 180, 180)),
+            ("Green = Positive Emotion", (100, 255, 100))
+        ]
+
+        for i, (label, color) in enumerate(legend_items):
+            y_pos = legend_y + i * 12
+            if i == 0:  # First item is just text
+                legend_font.render_to(self.surface, (10, y_pos), label, color)
+            else:
+                # Draw color square
+                color_rect = pygame.Rect(10, y_pos, 8, 8)
+                pygame.draw.rect(self.surface, color, color_rect)
+                # Draw label
+                legend_font.render_to(self.surface, (22, y_pos), label, (180, 180, 180))
 
 # Update the main.py to use the new UI
 def create_pygame_ui(orchestrator):

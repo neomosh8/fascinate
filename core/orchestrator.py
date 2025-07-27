@@ -383,9 +383,15 @@ class ConversationOrchestrator:
                 self.ui_callbacks["update_strategy"]((strategy, None))
                 await asyncio.sleep(0.5)  # Small delay to ensure update is processed
     
-            # 4. Generate GPT response
+            # 4. Generate GPT response with current engagement and emotion for risk detection
             self.logger.info("Generating response...")
-            assistant_text = await self.gpt.generate_response(user_text, strategy, turn_count=self.turn_count + 1 )
+            assistant_text = await self.gpt.generate_response(
+                user_text,
+                strategy,
+                turn_count=self.turn_count + 1,
+                current_engagement=engagement_before,  # Pass current engagement
+                current_emotion=emotion_before,  # Pass current emotion
+            )
     
             if "update_transcript" in self.ui_callbacks:
                 self.ui_callbacks["update_transcript"](f"Assistant: {assistant_text}")

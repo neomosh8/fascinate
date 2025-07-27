@@ -137,7 +137,7 @@ THERAPEUTIC_HOOKS = [
 
 @dataclass
 class TherapyConfig:
-    exploration_turns: int = 8
+    exploration_turns: int = 3
     exploitation_turns: int = 5
     activation_threshold: float = 0.7
     min_concept_mentions: int = 2

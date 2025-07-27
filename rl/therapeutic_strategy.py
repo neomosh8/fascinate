@@ -62,16 +62,16 @@ class TherapeuticStrategy(Strategy):
         if self.exploration_mode:
             return (
                 f"Adopt a {self.tone} therapeutic tone. Gently explore topics related to {self.topic} "
-                f"using {self.emotion} approach. use  '{self.hook}' in talking and see what resonates. "
+                f"using {self.emotion} approach. use a natural variation of  '{self.hook}' in talking and see what resonates. "
                 "Keep it exploratory and light - you're discovering what matters to this person. "
                 "Be curious about their inner world. Don't go too deep yet, just see what emerges."
             )
         else:
             return (
                 f"Use a {self.tone} therapeutic tone to deeply explore {self.target_concept}. "
-                f"Apply {self.emotion} therapeutic techniques. use '{self.hook}' in your talking and go deeper "
+                f"Apply {self.emotion} therapeutic techniques. use a natural variation of  '{self.hook}' in your talking and go deeper "
                 "into this area that showed strong emotional activation. This concept triggered significant "
-                "neural response, make meaningful deep conversation turn by trun, don't hover and stall"
+                "neural response, make meaningful deep conversation turn by turn, don't hover and stall"
             )
 
     def get_emotion_adapted_tts_params(self, user_emotion: float, user_engagement: float) -> Dict[str, float]:

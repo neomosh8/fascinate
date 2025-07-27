@@ -38,13 +38,13 @@ class TherapeuticSessionManager:
             )
 
     async def process_therapeutic_turn(
-        self, user_text: str, ai_response: str, engagement_after: float
+            self, user_text: str, ai_response: str, engagement_after: float, emotion_after: float  # NEW parameter
     ) -> Dict:
         """Process turn and update therapeutic state."""
         all_text = f"{user_text} {ai_response}"
         concepts = await self.concept_extractor.extract_concepts(all_text)
         if concepts:
-            self.concept_tracker.record_concept_activation(concepts, engagement_after)
+            self.concept_tracker.record_concept_activation(concepts, engagement_after, emotion_after)  # Updated
 
         self._update_session_phase()
 
@@ -54,6 +54,10 @@ class TherapeuticSessionManager:
             "turn_in_phase": self.turn_count_in_phase,
             "hot_concepts": self.concept_tracker.get_hot_concepts(),
             "current_target": self.current_exploitation_target,
+            "emotional_profiles": {  # NEW: Add emotional context
+                concept: self.concept_tracker.get_emotional_profile(concept)
+                for concept, _ in self.concept_tracker.get_hot_concepts()
+            }
         }
 
     def _update_session_phase(self):

@@ -412,10 +412,10 @@ class ConversationOrchestrator:
                 assistant_text,
                 self.bandit_agent._classify_context(user_text, user_spoke),
             )
-    
+
             if self.therapy_mode:
                 therapeutic_analysis = await self.therapeutic_manager.process_therapeutic_turn(
-                    user_text, assistant_text, engagement_after
+                    user_text, assistant_text, engagement_after, emotion_after  # ADD emotion_after
                 )
     
                 print(f"📊 Concepts found: {therapeutic_analysis['concepts_found']}")

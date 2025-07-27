@@ -465,6 +465,7 @@ class ConversationOrchestrator:
     
     
             # Enhanced logging (updated for turn-based approach)
+            # Enhanced logging (updated for turn-based approach)
             self.logger.log_turn(
                 {
                     "turn": self.turn_count,
@@ -475,6 +476,9 @@ class ConversationOrchestrator:
                     "engagement_before": engagement_before,
                     "engagement_after": engagement_after,
                     "engagement_delta": engagement_after - engagement_before,
+                    "emotion_before": emotion_before,  # NEW
+                    "emotion_after": emotion_after,  # NEW
+                    "emotion_delta": emotion_after - emotion_before,  # NEW
                     "reward": reward,
                     "duration": turn_data.duration,
                     "tts_duration": tts_end - tts_start,

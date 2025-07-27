@@ -40,7 +40,7 @@ Put normal talking glitches in bracket, like [laughter], [sigh], [umm], [ahhh], 
         })
 
         # Add conversation history (keep last 5 turns for context)
-        for msg in self.conversation_history[-10:]:
+        for msg in self.conversation_history[-50:]:
             messages.append(msg)
 
         # Add user input
@@ -84,7 +84,7 @@ Put normal talking glitches in bracket, like [laughter], [sigh], [umm], [ahhh], 
 
             # Optional: Log token usage for debugging
             print(f"Turn {turn_count}: Used {max_tokens} max tokens")
-
+            print(messages)
             return response
 
         except Exception as e:

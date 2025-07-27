@@ -60,10 +60,10 @@ MAX_RECORDING_DURATION = 120  # seconds
 
 # Token limits
 # Token limits - Dynamic scaling
-MIN_GPT_TOKENS = 80        # Minimum tokens during warmup
+MIN_GPT_TOKENS = 130        # Minimum tokens during warmup
 MAX_GPT_TOKENS = 180       # Maximum tokens after full ramp-up
 WARMUP_TURNS = 10         # Turns to stay at minimum
-MAX_TURN = 50             # Turn where maximum is reached
+MAX_TURN = 30             # Turn where maximum is reached
 MAX_CONVERSATION_TURNS = 100
 
 

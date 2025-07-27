@@ -10,7 +10,7 @@ from .embedding_service import EmbeddingService
 class ConversationContext:
     """Store recent conversation turns for context embeddings."""
 
-    def __init__(self, window_size: int = 5):
+    def __init__(self, window_size: int = 10):
         self.window_size = window_size
         self.user_messages = deque(maxlen=window_size)
         self.ai_responses = deque(maxlen=window_size)

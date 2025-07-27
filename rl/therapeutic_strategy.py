@@ -72,6 +72,7 @@ class TherapeuticStrategy(Strategy):
                 f"Apply {self.emotion} therapeutic techniques. use a natural variation of  '{self.hook}' in your talking and go deeper "
                 "into this area that showed strong emotional activation. This concept triggered significant "
                 "neural response, make meaningful deep conversation turn by turn, don't hover and stall"
+                "don't give me bullet points or numbered list, keep it directed and conversational"
             )
 
     def get_emotion_adapted_tts_params(self, user_emotion: float, user_engagement: float) -> Dict[str, float]:

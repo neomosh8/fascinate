@@ -177,10 +177,21 @@ class ContextualBanditAgent:
             candidates = self._get_safe_starter_strategies()
         elif context_type == "auto_advance":
             candidates = self._get_continuation_strategies()
+            if not candidates:
+                print("No continuation strategies, falling back to top performers")
+                candidates = self._get_top_performing_strategies(5)
         else:
             candidates = self._get_top_performing_strategies(5)
-            if not candidates:
-                candidates.append(self.strategy_space.get_random_strategy())
+
+        # NEW: Universal fallback if still no candidates
+        if not candidates:
+            print("No candidates found, using safe starter strategies")
+            candidates = self._get_safe_starter_strategies()
+
+        # NEW: Final fallback if even starter strategies fail
+        if not candidates:
+            print("No starter strategies, creating random strategy")
+            candidates = [self.strategy_space.get_random_strategy()]
 
         def score(cand: Strategy) -> float:
             key = cand.to_key()

@@ -19,12 +19,12 @@ class RealTimeBanditDashboard:
         self.screen_height = screen_height
 
         # Colors
-        self.bg_color = (15, 20, 25, 220)  # Semi-transparent dark
-        self.text_color = (200, 255, 200)
-        self.accent_color = (100, 255, 150)
-        self.warning_color = (255, 150, 100)
-        self.good_color = (100, 255, 100)
-        self.bad_color = (255, 100, 100)
+        self.bg_color = (30, 30, 30, 220)
+        self.text_color = (30, 30, 30)
+        self.accent_color = (120, 170, 230)
+        self.warning_color = self.accent_color
+        self.good_color = self.accent_color
+        self.bad_color = self.accent_color
 
         # Fonts
         self.font_title = pygame.freetype.Font(None, 20)
@@ -135,7 +135,7 @@ class RealTimeBanditDashboard:
         """Draw panel background with title."""
         # Panel background
         panel_rect = pygame.Rect(x, y, width, height)
-        pygame.draw.rect(screen, (25, 35, 45, 180), panel_rect, border_radius=8)
+        pygame.draw.rect(screen, (30, 30, 30, 180), panel_rect, border_radius=8)
         pygame.draw.rect(
             screen, self.accent_color, panel_rect, width=2, border_radius=8
         )
@@ -178,12 +178,12 @@ class RealTimeBanditDashboard:
             # Component background
             comp_rect = pygame.Rect(x + 10, comp_y, width - 20, 25)
             highlight_surf = pygame.Surface((width - 20, 25), pygame.SRCALPHA)
-            highlight_surf.fill((100, 200, 255, highlight_alpha // 4))
+            highlight_surf.fill((120, 170, 230, highlight_alpha // 4))
             screen.blit(highlight_surf, (x + 10, comp_y))
 
             # Component text
             self.font_small.render_to(
-                screen, (x + 15, comp_y + 2), label, (150, 150, 150)
+                screen, (x + 15, comp_y + 2), label, (30, 30, 30)
             )
 
             # Value with color coding
@@ -201,7 +201,7 @@ class RealTimeBanditDashboard:
         if self.current_reward == "SPEAKING...":
             reward_y = comp_y + 10
             pulse = math.sin(self.pulse_timer * 0.2) * 0.5 + 0.5
-            color = (255, int(100 + 155 * pulse), 0)
+            color = (120, 170, 230)
             self.font_large.render_to(
                 screen, (x + 15, reward_y), "\U0001f3b5 SPEAKING...", color
             )
@@ -257,7 +257,7 @@ class RealTimeBanditDashboard:
                 bar_rect = pygame.Rect(x + 15, bar_y, bar_width, bar_height)
 
                 # Background
-                pygame.draw.rect(screen, (50, 50, 50), bar_rect, border_radius=4)
+                pygame.draw.rect(screen, (30, 30, 30), bar_rect, border_radius=4)
 
                 # Performance fill
                 fill_width = int(
@@ -308,7 +308,7 @@ class RealTimeBanditDashboard:
             # Zero line
             zero_y = graph_y + graph_height // 2
             pygame.draw.line(
-                screen, (100, 100, 100), (x + 15, zero_y), (x + width - 15, zero_y), 1
+                screen, (30, 30, 30), (x + 15, zero_y), (x + width - 15, zero_y), 1
             )
 
             # Plot reward history
@@ -419,7 +419,7 @@ class RealTimeBanditDashboard:
             bar_width = 60
             bar_height = 4
             bar_rect = pygame.Rect(bar_x, item_y + 8, bar_width, bar_height)
-            pygame.draw.rect(screen, (50, 50, 50), bar_rect)
+            pygame.draw.rect(screen, (30, 30, 30), bar_rect)
 
             if reward > -1:  # Valid reward range
                 fill_width = int(bar_width * (reward + 1) / 2)
@@ -486,7 +486,7 @@ class RealTimeBanditDashboard:
                 bar_width = width - 40
                 bar_height = 10
                 bar_rect = pygame.Rect(x + 15, stats_y, bar_width, bar_height)
-                pygame.draw.rect(screen, (40, 40, 40), bar_rect, border_radius=5)
+                pygame.draw.rect(screen, (30, 30, 30), bar_rect, border_radius=5)
 
                 fill_width = int(bar_width * exploration_rate)
                 if fill_width > 0:

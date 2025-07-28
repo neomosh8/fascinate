@@ -52,7 +52,7 @@ class EngagementWidget:
         # Semi-transparent dot field
         dot_spacing = 10
         dot_radius = 1
-        dot_color = (0, 160, 0, 128)  # 50 % alpha
+        dot_color = (120, 170, 230, 128)  # accent with transparency
 
         for y in range(0, self.rect.height, dot_spacing):
             for x in range(0, self.rect.width, dot_spacing):
@@ -65,14 +65,14 @@ class EngagementWidget:
                 for i, v in enumerate(self.engagement_history)
             ]
             if len(points) > 1:
-                pygame.draw.lines(self.surface, (0, 255, 100), False, points, 2)
+                pygame.draw.lines(self.surface, (120, 170, 230), False, points, 2)
 
                 # Soft glow
                 for i in range(3):
                     glow = pygame.Surface(
                         (self.rect.width, self.rect.height), pygame.SRCALPHA
                     )
-                    pygame.draw.lines(glow, (0, 255, 100, 50), False, points, 4 + i * 2)
+                    pygame.draw.lines(glow, (120, 170, 230, 50), False, points, 4 + i * 2)
                     self.surface.blit(glow, (0, 0))
 
         # Current engagement value text
@@ -82,11 +82,11 @@ class EngagementWidget:
                 self.surface,
                 (5, 5),
                 f"{self.engagement_history[-1]:.3f}",
-                (0, 255, 100),
+                (120, 170, 230),
             )
 
         # Semi-transparent light-green border
-        border_color = (120, 255, 120, 128)  # 50 % alpha
+        border_color = (120, 170, 230, 128)
         pygame.draw.rect(
             self.surface,
             border_color,
@@ -139,7 +139,7 @@ class EEGPlotWidget:
         if not self.visible:
             return
 
-        self.surface.fill((0, 0, 0, 180))
+        self.surface.fill((30, 30, 30, 180))
         data1 = (
             list(self.raw_ch1)
             if self.mode == "raw"
@@ -172,15 +172,15 @@ class EEGPlotWidget:
             points2.append((x, y2))
 
         if len(points1) > 1:
-            pygame.draw.lines(self.surface, (0, 255, 0), False, points1, 1)
+            pygame.draw.lines(self.surface, (120, 170, 230), False, points1, 1)
         if len(points2) > 1:
-            pygame.draw.lines(self.surface, (255, 0, 0), False, points2, 1)
+            pygame.draw.lines(self.surface, (30, 30, 30), False, points2, 1)
 
         label = "RAW" if self.mode == "raw" else "FILTERED"
         font = pygame.freetype.Font(None, 14)
         font.render_to(self.surface, (5, 5), label, (200, 200, 200))
 
-        pygame.draw.rect(self.surface, (180, 255, 180), self.surface.get_rect(), 1)
+        pygame.draw.rect(self.surface, (120, 170, 230), self.surface.get_rect(), 1)
 
         screen.blit(self.surface, self.rect)
 
@@ -433,14 +433,14 @@ class PygameConversationUI:
 
         pygame.display.set_caption('neocore AI Therapist - POC')
 
-        # Colors
-        self.bg_color = (10, 15, 20)
-        self.text_color = (200, 255, 200)
-        self.button_color = (30, 60, 40)
-        self.button_hover_color = (50, 100, 60)
-        self.button_active_color = (100, 50, 50)
+        # Colors - minimal palette
+        self.bg_color = (245, 245, 245)  # smooth white background
+        self.text_color = (30, 30, 30)   # warm black
+        self.button_color = (30, 30, 30)
+        self.button_hover_color = (120, 170, 230)  # accent
+        self.button_active_color = (120, 170, 230)
 
-        self.border_color = (180, 255, 180)  # light-green outline
+        self.border_color = (120, 170, 230)
         self.mic_icon = "🎤"  # U+1F3A4
 
         # Fonts
@@ -566,7 +566,7 @@ class PygameConversationUI:
             self.current_message.fade_out()
 
         # Create new message
-        color =(200, 255, 210) if is_user else (163, 255, 181)
+        color = (30, 30, 30) if is_user else (120, 170, 230)
         prefix = "You: " if is_user else "AI: "
         full_text = prefix + text
 
@@ -649,11 +649,12 @@ class PygameConversationUI:
                 fill = self.button_color
             pygame.draw.rect(self.screen, fill, rect, border_radius=14)
 
-        # 70 % transparent light-green border
+        # 70 % transparent accent border
         border_surf = pygame.Surface(rect.size, pygame.SRCALPHA)
-        border_color = (180, 255, 180, 178)  # alpha 178 ≈ 70 %
-        pygame.draw.rect(border_surf, border_color, border_surf.get_rect(),
-                         width=2, border_radius=14)  # rounder radius (14)
+        border_color = (120, 170, 230, 178)
+        pygame.draw.rect(
+            border_surf, border_color, border_surf.get_rect(), width=2, border_radius=14
+        )
         self.screen.blit(border_surf, rect.topleft)
 
         # Render icon and text
@@ -902,11 +903,11 @@ class PygameConversationUI:
                 self.screen,
                 (self.screen_width - 200, self.screen_height - 20),
                 hint_text,
-                (150, 150, 150),
+                (30, 30, 30),
             )
 
         guide_text = "Hold SPACE or click to speak"
-        text_surf, text_rect = self.font_small.render(guide_text, (150, 150, 150))
+        text_surf, text_rect = self.font_small.render(guide_text, (30, 30, 30))
         text_rect.center = self.guide_pos
         self.screen.blit(text_surf, text_rect)
 
@@ -970,20 +971,9 @@ class ConceptVisualizationWidget:
 
     def get_concept_color(self, avg_engagement: float, avg_emotion: float, emotional_intensity: float) -> Tuple[
         int, int, int]:
-        """Get color based ONLY on emotion: red=negative, gray=neutral, green=positive."""
+        """Return the single accent color regardless of emotion."""
 
-        if avg_emotion < 0.4:  # Negative emotion
-            # Scale red intensity based on how negative (0.4 to 0.0 maps to light red to bright red)
-            intensity = int(255 * (0.4 - avg_emotion) / 0.4)  # 0.4→0, 0.0→255
-            return (255, max(50, 255 - intensity), max(50, 255 - intensity))  # Red with some green/blue
-
-        elif avg_emotion > 0.6:  # Positive emotion
-            # Scale green intensity based on how positive (0.6 to 1.0 maps to light green to bright green)
-            intensity = int(255 * (avg_emotion - 0.6) / 0.4)  # 0.6→0, 1.0→255
-            return (max(50, 255 - intensity), 255, max(50, 255 - intensity))  # Green with some red/blue
-
-        else:  # Neutral emotion (0.4 to 0.6)
-            return (180, 180, 180)  # Gray
+        return (120, 170, 230)
 
     def get_font_size(self, avg_engagement: float, emotional_intensity: float) -> pygame.freetype.Font:
         """Get font size based ONLY on engagement."""
@@ -1060,16 +1050,18 @@ class ConceptVisualizationWidget:
 
         # Draw semi-transparent background
         bg_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
-        bg_surface.fill((20, 25, 30, 200))
+        bg_surface.fill((30, 30, 30, 200))
         self.surface.blit(bg_surface, (0, 0))
 
         # Draw border
-        border_color = (100, 255, 150, 180)
+        border_color = (120, 170, 230, 180)
         pygame.draw.rect(self.surface, border_color, self.surface.get_rect(), width=2, border_radius=8)
 
         # Title
         title_font = pygame.freetype.Font(None, 16)
-        title_font.render_to(self.surface, (10, 8), "CONCEPT TRACKER (Q to toggle)", (150, 255, 150))
+        title_font.render_to(
+            self.surface, (10, 8), "CONCEPT TRACKER (Q to toggle)", (120, 170, 230)
+        )
 
         # Get concept data
         if not hasattr(concept_tracker, 'concept_activations'):
@@ -1151,10 +1143,8 @@ class ConceptVisualizationWidget:
         legend_font = pygame.freetype.Font(None, 10)
 
         legend_items = [
-            ("SIZE = Engagement Level", (255, 255, 255)),
-            ("Red = Negative Emotion", (255, 100, 100)),
-            ("Gray = Neutral Emotion", (180, 180, 180)),
-            ("Green = Positive Emotion", (100, 255, 100))
+            ("SIZE = Engagement Level", (30, 30, 30)),
+            ("Emotion", (120, 170, 230)),
         ]
 
         for i, (label, color) in enumerate(legend_items):
@@ -1166,14 +1156,14 @@ class ConceptVisualizationWidget:
                 color_rect = pygame.Rect(10, y_pos, 8, 8)
                 pygame.draw.rect(self.surface, color, color_rect)
                 # Draw label
-                legend_font.render_to(self.surface, (22, y_pos), label, (180, 180, 180))
+                legend_font.render_to(self.surface, (22, y_pos), label, (30, 30, 30))
 
     def save_as_image(self, filepath: str, concept_tracker):
         pygame.freetype.init()
         """Save the current concept visualization as an image."""
         # Create a clean surface for saving
         save_surface = pygame.Surface((self.rect.width, self.rect.height))
-        save_surface.fill((20, 25, 30))  # Dark background
+        save_surface.fill((30, 30, 30))  # Warm black background
 
         # Force visibility for rendering
         original_visible = self.visible
@@ -1207,18 +1197,18 @@ class ConceptVisualizationWidget:
 
         # Draw semi-transparent background
         bg_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
-        bg_surface.fill((20, 25, 30, 220))
+        bg_surface.fill((30, 30, 30, 220))
         self.surface.blit(bg_surface, (0, 0))
 
         # Draw border
-        border_color = (100, 255, 150, 180)
+        border_color = (120, 170, 230, 180)
         pygame.draw.rect(self.surface, border_color, self.surface.get_rect(), width=2, border_radius=8)
 
         # Title with timestamp
         from datetime import datetime
         title_font = pygame.freetype.Font(None, 16)
         title_text = f"CONCEPT TRACKER - Session {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        title_font.render_to(self.surface, (10, 8), title_text, (150, 255, 150))
+        title_font.render_to(self.surface, (10, 8), title_text, (120, 170, 230))
 
         # Get concept data
         if not hasattr(concept_tracker, 'concept_activations'):
@@ -1305,7 +1295,7 @@ class ConceptVisualizationWidget:
         ]
 
         for i, line in enumerate(stats_lines):
-            color = (200, 200, 200) if i == 0 else (150, 150, 150)
+            color = (30, 30, 30)
             stats_font.render_to(self.surface, (10, stats_y + i * 14), line, color)
 
 # Update the main.py to use the new UI

@@ -152,7 +152,7 @@ class TherapeuticStrategy(Strategy):
             "warmth": np.clip(adapted_warmth, 0.7, 1.3),
         }
 
-    def evolve_voice_parameters(self, reward: float, learning_rate: float = 0.1):
+    def evolve_voice_parameters_old(self, reward: float, learning_rate: float = 0.1):
         if abs(reward) < 0.1:
             return
         mutation_strength = learning_rate * reward
@@ -172,6 +172,23 @@ class TherapeuticStrategy(Strategy):
         self.base_voice_energy = np.clip(self.base_voice_energy, 0.7, 1.3)
         self.voice_warmth = np.clip(self.voice_warmth, 0.7, 1.3)
 
+    def evolve_voice_parameters(self, reward: float, learning_rate: float = 0.1):
+        # If it's working (positive reward), DO NOTHING
+        if reward >= 0:
+            return
+
+        # Only change parameters when failing (negative reward)
+        self.base_voice_speed += random.uniform(-0.05, 0.05)
+        self.base_voice_pitch += random.uniform(-0.02, 0.02)
+        self.base_voice_energy += random.uniform(-0.05, 0.05)
+        self.voice_warmth += random.uniform(-0.05, 0.05)
+
+        # Clip to valid ranges
+        self.base_voice_speed = np.clip(self.base_voice_speed, 0.7, 1.3)
+        self.base_voice_pitch = np.clip(self.base_voice_pitch, -0.3, 0.3)
+        self.base_voice_energy = np.clip(self.base_voice_energy, 0.7, 1.3)
+        self.voice_warmth = np.clip(self.voice_warmth, 0.7, 1.3)
+        
     def get_voice_signature(self) -> str:
         return (
             f"spd:{self.base_voice_speed:.2f},pit:{self.base_voice_pitch:.2f}," 

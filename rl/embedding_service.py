@@ -2,14 +2,15 @@ import numpy as np
 from typing import List, Optional
 from openai import OpenAI
 from rl.strategy import Strategy
+from functools import lru_cache
 
 class EmbeddingService:
     """Service for generating embeddings with caching."""
 
     def __init__(self):
         self.client = OpenAI()
-        self.cache = {}
 
+    @lru_cache(maxsize=1000)  # Automatically manages cache size
     def embed_text(self, text: str) -> np.ndarray:
         """Embed any text using OpenAI API with simple caching."""
         if not text.strip():

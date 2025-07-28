@@ -90,8 +90,9 @@ class ContextualBanditAgent:
         target_concept: Optional[str],
     ) -> TurnContext:
         """Build a structured context object with raw embeddings."""
-        user_msgs, ai_responses, strategies, engagements = self.context.get_recent_context(3)
-
+        user_msgs, ai_responses, strategies, engagements = self.context.get_recent_context(
+            min(50, len(self.context.user_messages))  # Use all available, up to 35
+        )
         target_concept_embedding = (
             self.embedding_service.embed_text(target_concept) if target_concept else None
         )

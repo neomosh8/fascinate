@@ -55,7 +55,7 @@ class ConversationOrchestrator:
         self.last_emotion = 0.5
 
         # Initialize Contextual Bandit agent
-        self.bandit_agent = ContextualBanditAgent(context_window_size=35)
+        self.bandit_agent = ContextualBanditAgent(context_window_size=50)
         self.bandit_agent.set_strategy_space(self.therapy_mode)
 
         # Load saved bandit state

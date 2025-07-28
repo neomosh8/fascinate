@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from pathlib import Path
 from typing import Optional, Callable, Dict, List, Tuple
 from dataclasses import dataclass
 
@@ -586,6 +587,7 @@ class ConversationOrchestrator:
         """Clean up resources."""
         self.cancel_auto_advance_timer()
         if self.turn_count > 0:
+            self.save_session_visualizations()  # Add this line
             self.print_session_summary()
 
         self.stt.cleanup()
@@ -708,3 +710,69 @@ class ConversationOrchestrator:
             print(f"\nRL Performance Error: {rl_perf['error']}")
 
         print("=" * 60)
+
+    def save_session_visualizations(self):
+        """Save session visualizations as images."""
+        from pathlib import Path
+        import time
+
+        # Create visualizations directory
+        viz_dir = Path("visualizations")
+        viz_dir.mkdir(exist_ok=True)
+
+        # Generate timestamp
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+        # Save word cloud if UI has concept widget
+        if hasattr(self, 'ui_callbacks') and 'save_word_cloud' in self.ui_callbacks:
+            try:
+                word_cloud_path = viz_dir / f"word_cloud_{timestamp}.png"
+                self.ui_callbacks['save_word_cloud'](str(word_cloud_path))
+            except Exception as e:
+                print(f"Failed to save word cloud: {e}")
+
+        # Save concept statistics as JSON
+        if self.therapy_mode and hasattr(self, 'therapeutic_manager'):
+            try:
+                stats_path = viz_dir / f"concept_stats_{timestamp}.json"
+                self._save_concept_statistics(stats_path)
+            except Exception as e:
+                print(f"Failed to save concept statistics: {e}")
+
+    def _save_concept_statistics(self, filepath: Path):
+        """Save detailed concept statistics as JSON."""
+        import json
+
+        concept_tracker = self.therapeutic_manager.concept_tracker
+        stats = {
+            "session_timestamp": filepath.stem.split('_')[-2:],
+            "total_turns": self.turn_count,
+            "concepts": {}
+        }
+
+        for concept, engagement_scores in concept_tracker.concept_activations.items():
+            emotion_scores = concept_tracker.concept_emotions.get(concept, [])
+
+            stats["concepts"][concept] = {
+                "engagement_scores": engagement_scores,
+                "emotion_scores": emotion_scores,
+                "total_mentions": len(engagement_scores),
+                "avg_engagement": float(np.mean(engagement_scores)),
+                "avg_emotion": float(np.mean(emotion_scores)) if emotion_scores else 0.5,
+                "emotional_intensity": float(
+                    np.mean([abs(e - 0.5) * 2 for e in emotion_scores])) if emotion_scores else 0.0,
+                "engagement_trend": float(engagement_scores[-1] - engagement_scores[0]) if len(
+                    engagement_scores) > 1 else 0.0
+            }
+
+        # Sort by importance for easier reading
+        stats["concepts"] = dict(sorted(
+            stats["concepts"].items(),
+            key=lambda x: x[1]["avg_engagement"] * (1 + x[1]["emotional_intensity"]),
+            reverse=True
+        ))
+
+        with open(filepath, 'w') as f:
+            json.dump(stats, f, indent=2)
+
+        print(f"📊 Concept statistics saved to: {filepath}")

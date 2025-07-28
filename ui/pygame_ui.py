@@ -493,6 +493,10 @@ class PygameConversationUI:
         self.current_audio_file = None
         self.audio_level = 0.0
 
+        self.orchestrator.ui_callbacks.update({
+            'save_word_cloud': self.save_word_cloud,
+        })
+
     def _layout_buttons(self):
         """Create the Speak, Summary and Stop buttons as one centered stack."""
         # Main button position and size
@@ -927,6 +931,14 @@ class PygameConversationUI:
 
         pygame.quit()
 
+    def save_word_cloud(self, filepath: str):
+        """Save the current word cloud visualization."""
+        if hasattr(self.orchestrator, 'therapeutic_manager'):
+            concept_tracker = self.orchestrator.therapeutic_manager.concept_tracker
+            self.concept_widget.save_as_image(filepath, concept_tracker)
+        else:
+            print("⚠️ No therapeutic manager available for word cloud")
+
 
 class ConceptVisualizationWidget:
     """Real-time concept tracking with emotional word cloud."""
@@ -1155,6 +1167,146 @@ class ConceptVisualizationWidget:
                 pygame.draw.rect(self.surface, color, color_rect)
                 # Draw label
                 legend_font.render_to(self.surface, (22, y_pos), label, (180, 180, 180))
+
+    def save_as_image(self, filepath: str, concept_tracker):
+        pygame.freetype.init()
+        """Save the current concept visualization as an image."""
+        # Create a clean surface for saving
+        save_surface = pygame.Surface((self.rect.width, self.rect.height))
+        save_surface.fill((20, 25, 30))  # Dark background
+
+        # Force visibility for rendering
+        original_visible = self.visible
+        original_alpha = self.fade_alpha
+        self.visible = True
+        self.fade_alpha = 255
+
+        # Create a temporary surface to draw on
+        temp_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+        self.surface = temp_surface
+
+        # Draw the visualization
+        self._draw_concept_content(concept_tracker)
+
+        # Blit to save surface
+        save_surface.blit(temp_surface, (0, 0))
+
+        # Save the image
+        pygame.image.save(save_surface, filepath)
+
+        # Restore original state
+        self.visible = original_visible
+        self.fade_alpha = original_alpha
+
+        print(f"💾 Word cloud saved to: {filepath}")
+
+    def _draw_concept_content(self, concept_tracker):
+        """Helper method to draw concept content (extracted from draw method)."""
+        # Clear surface
+        self.surface.fill((0, 0, 0, 0))
+
+        # Draw semi-transparent background
+        bg_surface = pygame.Surface((self.rect.width, self.rect.height), pygame.SRCALPHA)
+        bg_surface.fill((20, 25, 30, 220))
+        self.surface.blit(bg_surface, (0, 0))
+
+        # Draw border
+        border_color = (100, 255, 150, 180)
+        pygame.draw.rect(self.surface, border_color, self.surface.get_rect(), width=2, border_radius=8)
+
+        # Title with timestamp
+        from datetime import datetime
+        title_font = pygame.freetype.Font(None, 16)
+        title_text = f"CONCEPT TRACKER - Session {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        title_font.render_to(self.surface, (10, 8), title_text, (150, 255, 150))
+
+        # Get concept data
+        if not hasattr(concept_tracker, 'concept_activations'):
+            no_data_font = pygame.freetype.Font(None, 14)
+            no_data_font.render_to(self.surface, (20, 40), "No concepts tracked during session", (150, 150, 150))
+            self._draw_legend()
+            return
+
+        # Sort concepts by importance
+        concept_items = []
+        for concept, engagement_scores in concept_tracker.concept_activations.items():
+            if len(engagement_scores) >= 1:
+                avg_engagement = np.mean(engagement_scores)
+
+                if hasattr(concept_tracker, 'concept_emotions') and concept in concept_tracker.concept_emotions:
+                    emotion_scores = concept_tracker.concept_emotions[concept]
+                    emotional_intensity = np.mean([abs(e - 0.5) * 2 for e in emotion_scores])
+                else:
+                    emotional_intensity = 0.0
+
+                importance = avg_engagement * (1 + emotional_intensity)
+                concept_items.append((concept, importance, avg_engagement, emotional_intensity))
+
+        concept_items.sort(key=lambda x: x[1], reverse=True)
+
+        # Draw concepts with stable positions
+        max_concepts = 20  # Show more concepts in saved image
+        for i, (concept, importance, avg_engagement, emotional_intensity) in enumerate(concept_items[:max_concepts]):
+            # Get emotional data
+            if hasattr(concept_tracker, 'concept_emotions') and concept in concept_tracker.concept_emotions:
+                emotion_scores = concept_tracker.concept_emotions[concept]
+                avg_emotion = np.mean(emotion_scores)
+            else:
+                avg_emotion = 0.5
+
+            # Get color and font
+            color = self.get_concept_color(avg_engagement, avg_emotion, emotional_intensity)
+            font = self.get_font_size(avg_engagement, emotional_intensity)
+
+            # Calculate position if not exists
+            if concept not in self.word_positions:
+                text_surface, text_rect = font.render(concept, color)
+                x, y = self.calculate_word_position(concept, font, i)
+                self.word_positions[concept] = (x, y, text_rect.width, text_rect.height)
+
+            # Draw word
+            x, y, w, h = self.word_positions[concept]
+            font.render_to(self.surface, (x, y), concept, color)
+
+            # Draw detailed stats for saved image
+            engagement_scores = concept_tracker.concept_activations[concept]
+            stats_text = f"eng:{avg_engagement:.2f} emo:{avg_emotion:.2f} cnt:{len(engagement_scores)}"
+            stats_font = pygame.freetype.Font(None, 10)
+            stats_font.render_to(self.surface, (x, y + h + 2), stats_text, (120, 120, 120))
+
+        # Draw legend
+        self._draw_legend()
+
+        # Add session stats
+        self._draw_session_stats(concept_tracker)
+
+    def _draw_session_stats(self, concept_tracker):
+        """Draw session statistics on the saved image."""
+        stats_y = self.rect.height - 120
+        stats_font = pygame.freetype.Font(None, 12)
+
+        # Session summary
+        total_concepts = len(concept_tracker.concept_activations)
+        total_mentions = sum(len(scores) for scores in concept_tracker.concept_activations.values())
+
+        if hasattr(concept_tracker, 'concept_emotions'):
+            avg_session_emotion = np.mean([
+                np.mean(emotions) for emotions in concept_tracker.concept_emotions.values()
+                if len(emotions) > 0
+            ]) if concept_tracker.concept_emotions else 0.5
+        else:
+            avg_session_emotion = 0.5
+
+        stats_lines = [
+            f"SESSION SUMMARY:",
+            f"Total Concepts: {total_concepts}",
+            f"Total Mentions: {total_mentions}",
+            f"Avg Session Emotion: {avg_session_emotion:.2f}",
+        ]
+
+        for i, line in enumerate(stats_lines):
+            color = (200, 200, 200) if i == 0 else (150, 150, 150)
+            stats_font.render_to(self.surface, (10, stats_y + i * 14), line, color)
 
 # Update the main.py to use the new UI
 def create_pygame_ui(orchestrator):

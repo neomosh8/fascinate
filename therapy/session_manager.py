@@ -5,7 +5,6 @@ from typing import Dict, Optional
 
 from .concept_extractor import ConceptExtractor
 from .concept_tracker import ConceptTracker
-from rl.therapeutic_strategy import TherapeuticStrategy
 from config import TherapyConfig
 
 
@@ -21,21 +20,6 @@ class TherapeuticSessionManager:
         self.turn_count_in_phase = 0
         self.current_exploitation_target: Optional[str] = None
 
-    async def select_therapeutic_strategy(self) -> TherapeuticStrategy:
-        """Select strategy based on current therapeutic phase."""
-        if self.session_phase == "exploration":
-            return TherapeuticStrategy.create_exploration_strategy(self.turn_count_in_phase)
-        elif self.session_phase == "exploitation":
-            if not self.current_exploitation_target:
-                hot_concepts = self.concept_tracker.get_hot_concepts(top_k=1)
-                if hot_concepts:
-                    self.current_exploitation_target = hot_concepts[0][0]
-                else:
-                    self._switch_to_exploration()
-                    return TherapeuticStrategy.create_exploration_strategy(0)
-            return TherapeuticStrategy.create_exploitation_strategy(
-                self.current_exploitation_target, self.turn_count_in_phase
-            )
 
     async def process_therapeutic_turn(
             self, user_text: str, ai_response: str, engagement_after: float, emotion_after: float  # NEW parameter

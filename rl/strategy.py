@@ -167,6 +167,26 @@ class StrategySpace:
         import random
         return random.choice(self.strategies)
 
+    def get_mutated_strategy(self, base_strategy: Strategy) -> Strategy:
+        """Return a slight variation of the given strategy."""
+        import random
+        tone = base_strategy.tone
+        topic = base_strategy.topic
+        emotion = base_strategy.emotion
+        hook = base_strategy.hook
+
+        component = random.choice(["tone", "topic", "emotion", "hook"])
+        if component == "tone":
+            tone = random.choice(TONES)
+        elif component == "topic":
+            topic = random.choice(TOPICS)
+        elif component == "emotion":
+            emotion = random.choice(EMOTIONS)
+        else:
+            hook = random.choice(HOOKS)
+
+        return Strategy(tone=tone, topic=topic, emotion=emotion, hook=hook, index=-1)
+
     def save_memory(self, filepath):
         """Persist best and worst examples for all strategies."""
         memory_data = {}

@@ -1,6 +1,7 @@
 import numpy as np
 from collections import deque, defaultdict
 from typing import List, Tuple, Optional, Dict
+from dataclasses import dataclass
 
 
 from rl.strategy import Strategy, StrategySpace
@@ -32,6 +33,18 @@ class ConversationContext:
         )
 
 
+@dataclass
+class TurnContext:
+    """Structured context for a single decision."""
+
+    session_phase: str
+    target_concept_embedding: Optional[np.ndarray]
+    user_embedding: Optional[np.ndarray]
+    ai_embedding: Optional[np.ndarray]
+    strategy_sequence_embedding: Optional[np.ndarray]
+    engagement_features: Optional[np.ndarray]
+
+
 class ContextualBanditAgent:
     """Contextual bandit using simple contextual UCB."""
 
@@ -42,7 +55,7 @@ class ContextualBanditAgent:
 
         # Experience storage
         self.strategy_rewards: Dict[str, List[float]] = defaultdict(list)
-        self.strategy_contexts: Dict[str, List[np.ndarray]] = defaultdict(list)
+        self.strategy_contexts: Dict[str, List[TurnContext]] = defaultdict(list)
         self.total_selections = 0
 
     def _classify_context(self, user_msg: str, user_spoke: bool) -> str:
@@ -62,148 +75,90 @@ class ContextualBanditAgent:
     # ------------------------------------------------------------------
     # Context vector construction
     # ------------------------------------------------------------------
-    def _build_context_vector(self) -> np.ndarray:
-        """Build context vector with normalized components to prevent scale dominance."""
-        vectors: List[np.ndarray] = []
+    def _build_context_vector(
+        self,
+        session_phase: str,
+        target_concept: Optional[str],
+    ) -> TurnContext:
+        """Build a structured context object with raw embeddings."""
         user_msgs, ai_responses, strategies, engagements = self.context.get_recent_context(3)
 
-        # 1. User text embeddings (normalized)
-        if user_msgs:
-            user_text = " [TURN] ".join(user_msgs)
-            user_embed = self.embedding_service.embed_text(user_text)
-            # L2 normalize to unit vector
-            user_norm = np.linalg.norm(user_embed)
-            if user_norm > 1e-8:  # Avoid division by zero
-                user_embed = user_embed / user_norm
-            vectors.append(user_embed)
-        else:
-            # Zero vector if no user messages
-            vectors.append(np.zeros(1536))  # OpenAI embedding dimension
+        target_concept_embedding = (
+            self.embedding_service.embed_text(target_concept) if target_concept else None
+        )
 
-        # 2. AI response embeddings (normalized)
-        if ai_responses:
-            ai_text = " [TURN] ".join(ai_responses)
-            ai_embed = self.embedding_service.embed_text(ai_text)
-            # L2 normalize to unit vector
-            ai_norm = np.linalg.norm(ai_embed)
-            if ai_norm > 1e-8:
-                ai_embed = ai_embed / ai_norm
-            vectors.append(ai_embed)
-        else:
-            # Zero vector if no AI responses
-            vectors.append(np.zeros(1536))
+        user_embedding = (
+            self.embedding_service.embed_text(" [TURN] ".join(user_msgs)) if user_msgs else None
+        )
 
-        # 3. Strategy embeddings (sequence-aware with position weighting)
+        ai_embedding = (
+            self.embedding_service.embed_text(" [TURN] ".join(ai_responses)) if ai_responses else None
+        )
+
+        strategy_sequence_embedding = None
         if strategies:
-            # Position weights: recent strategies get higher influence
-            pos_weights = [1.0, 0.8, 0.6]  # Most recent first
-            strategy_sequence = []
-
+            pos_weights = [1.0, 0.8, 0.6]
+            weighted = []
             for i, strategy in enumerate(strategies):
-                strategy_embed = self.embedding_service.embed_strategy(strategy)
-                # L2 normalize individual strategy
-                strategy_norm = np.linalg.norm(strategy_embed)
-                if strategy_norm > 1e-8:
-                    strategy_embed = strategy_embed / strategy_norm
-
-                # Apply position weight
+                embed = self.embedding_service.embed_strategy(strategy)
                 weight = pos_weights[i] if i < len(pos_weights) else 0.4
-                strategy_embed = strategy_embed * weight
-                strategy_sequence.append(strategy_embed)
+                weighted.append(embed * weight)
+            strategy_sequence_embedding = np.mean(weighted, axis=0)
 
-            # Pad with zeros if we have fewer than 3 strategies
-            while len(strategy_sequence) < 3:
-                strategy_sequence.append(np.zeros(1536))
+        engagement_features = (
+            self.embedding_service.create_engagement_features(engagements) if engagements else None
+        )
 
-            # Concatenate sequence (preserves order)
-            strategy_concat = np.concatenate(strategy_sequence)
-            vectors.append(strategy_concat)
-        else:
-            # Zero vector if no strategies (3 strategy positions)
-            vectors.append(np.zeros(1536 * 3))
-
-        # 4. Engagement features (normalized)
-        if engagements:
-            eng_features = self.embedding_service.create_engagement_features(engagements)
-            # L2 normalize engagement features
-            eng_norm = np.linalg.norm(eng_features)
-            if eng_norm > 1e-8:
-                eng_features = eng_features / eng_norm
-            vectors.append(eng_features)
-        else:
-            # Zero vector if no engagement data
-            vectors.append(np.zeros(6))  # 6 engagement features
-
-        # 5. Concatenate all normalized components
-        if vectors:
-            context_vector = np.concatenate(vectors)
-            # Optional: normalize the final concatenated vector as well
-            final_norm = np.linalg.norm(context_vector)
-            if final_norm > 1e-8:
-                context_vector = context_vector / final_norm
-            return context_vector
-
-        # Fallback for very early conversation
-        start_vec = self.embedding_service.embed_text("conversation start")
-        start_norm = np.linalg.norm(start_vec)
-        if start_norm > 1e-8:
-            start_vec = start_vec / start_norm
-
-        # Create normalized zero padding for other components
-        padding = np.zeros(1536 * 2 + 6)  # AI text + strategy + engagement
-        fallback_vector = np.concatenate([start_vec, padding])
-
-        # Normalize the fallback vector too
-        fallback_norm = np.linalg.norm(fallback_vector)
-        if fallback_norm > 1e-8:
-            fallback_vector = fallback_vector / fallback_norm
-
-        return fallback_vector
+        return TurnContext(
+            session_phase=session_phase,
+            target_concept_embedding=target_concept_embedding,
+            user_embedding=user_embedding,
+            ai_embedding=ai_embedding,
+            strategy_sequence_embedding=strategy_sequence_embedding,
+            engagement_features=engagement_features,
+        )
 
     # ------------------------------------------------------------------
     # Strategy selection
     # ------------------------------------------------------------------
-    def select_strategy(self) -> Strategy:
-        context_vector = self._build_context_vector()
+    def select_strategy(
+        self,
+        session_phase: str,
+        target_concept: Optional[str],
+        num_candidates: int = 15,
+    ) -> Strategy:
+        """Select the best strategy based on provided therapeutic context."""
+        context_object = self._build_context_vector(session_phase, target_concept)
 
-        # Determine context type for smarter candidate generation before
-        # incrementing selections so the cold start case triggers correctly.
-        recent_user_msgs, _, _, _ = self.context.get_recent_context(1)
-        user_msg = recent_user_msgs[-1] if recent_user_msgs else ""
-        user_spoke = len(user_msg.strip()) > 0 and user_msg != "[Silent]"
-        context_type = self._classify_context(user_msg, user_spoke)
-        print(context_type)
-        if context_type == "cold_start":
-            candidates = self._get_safe_starter_strategies()
-        elif context_type == "auto_advance":
-            candidates = self._get_continuation_strategies()
-            if not candidates:
-                print("No continuation strategies, falling back to top performers")
-                candidates = self._get_top_performing_strategies(5)
-        else:
-            candidates = self._get_top_performing_strategies(5)
+        all_tried_strategies = [Strategy.from_key(k) for k in self.strategy_rewards.keys()]
 
-        # NEW: Universal fallback if still no candidates
-        if not candidates:
-            print("No candidates found, using safe starter strategies")
-            candidates = self._get_safe_starter_strategies()
+        if not all_tried_strategies:
+            return self.strategy_space.get_random_strategy()
 
-        # NEW: Final fallback if even starter strategies fail
-        if not candidates:
-            print("No starter strategies, creating random strategy")
-            candidates = [self.strategy_space.get_random_strategy()]
-
-        def score(cand: Strategy) -> float:
-            key = cand.to_key()
+        scored_candidates = []
+        for strat in all_tried_strategies:
+            key = strat.to_key()
             contexts = self.strategy_contexts.get(key, [])
             rewards = self.strategy_rewards.get(key, [])
-            return self._predict_contextual_reward(cand, context_vector, contexts, rewards)
+            predicted = self._predict_contextual_reward(strat, context_object, contexts, rewards)
+            scored_candidates.append((strat, predicted))
 
-        best_strategy = max(candidates, key=score)
+        scored_candidates.sort(key=lambda x: x[1], reverse=True)
+        top_candidates = [s for s, _ in scored_candidates[:num_candidates]]
+
+        import random
+        if random.random() < 0.2:
+            print("🤖 Bandit is exploring (random choice)...")
+            if session_phase == 'exploitation' and top_candidates:
+                return self.strategy_space.get_mutated_strategy(top_candidates[0])
+            return self.strategy_space.get_random_strategy()
+
+        if not top_candidates:
+            return self.strategy_space.get_random_strategy()
+
+        best_strategy = top_candidates[0]
         self.total_selections += 1
-        print(context_type,"context type")
-        print(best_strategy,"strategy")
-        print(candidates,"candidates")
+        print(f"🤖 Bandit chose: {best_strategy.to_key()} for phase '{session_phase}'")
         return best_strategy
 
 
@@ -250,51 +205,73 @@ class ContextualBanditAgent:
         return starters
 
 
-    def _calculate_contextual_similarity(self, current_context: np.ndarray, historical_context: np.ndarray) -> float:
-        """
-        Calculate similarity using separate text and engagement similarity computation.
-        Preserves OpenAI embedding semantics while handling scale/dimensionality issues.
-        """
-        # Split contexts into components
-        # Assuming structure: [user_embed(1536) + ai_embed(1536) + strategy_embed(1536) + engagement(6)]
-        TEXT_DIM = 7680  # 3 * 1536
+    def _cosine_similarity(self, vec1: Optional[np.ndarray], vec2: Optional[np.ndarray]) -> float:
+        """Safely compute cosine similarity, returning 0 for missing vectors."""
+        if vec1 is None or vec2 is None:
+            return 0.0
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        return float(np.dot(vec1, vec2) / (norm1 * norm2))
 
-        curr_text = current_context[:TEXT_DIM]
-        curr_eng = current_context[TEXT_DIM:]
+    def _calculate_contextual_similarity(self, current_context: TurnContext, historical_context: TurnContext) -> float:
+        """Weighted similarity across structured context components."""
 
-        hist_text = historical_context[:TEXT_DIM]
-        hist_eng = historical_context[TEXT_DIM:]
+        weights = {
+            "phase": 0.10,
+            "concept": 0.25,
+            "user_text": 0.20,
+            "ai_text": 0.10,
+            "strategy": 0.15,
+            "engagement": 0.20,
+        }
 
-        # Calculate text similarity (preserve OpenAI embedding space)
-        text_norm_curr = np.linalg.norm(curr_text)
-        text_norm_hist = np.linalg.norm(hist_text)
+        phase_sim = 1.0 if current_context.session_phase == historical_context.session_phase else 0.0
 
-        if text_norm_curr > 1e-8 and text_norm_hist > 1e-8:
-            text_sim = np.dot(curr_text, hist_text) / (text_norm_curr * text_norm_hist)
-        else:
-            text_sim = 0.0
+        concept_sim = self._cosine_similarity(
+            current_context.target_concept_embedding,
+            historical_context.target_concept_embedding,
+        )
 
-        # Calculate engagement similarity
-        eng_norm_curr = np.linalg.norm(curr_eng)
-        eng_norm_hist = np.linalg.norm(hist_eng)
+        user_sim = self._cosine_similarity(current_context.user_embedding, historical_context.user_embedding)
+        ai_sim = self._cosine_similarity(current_context.ai_embedding, historical_context.ai_embedding)
+        strat_sim = self._cosine_similarity(
+            current_context.strategy_sequence_embedding,
+            historical_context.strategy_sequence_embedding,
+        )
 
-        if eng_norm_curr > 1e-8 and eng_norm_hist > 1e-8:
-            eng_sim = np.dot(curr_eng, hist_eng) / (eng_norm_curr * eng_norm_hist)
-        else:
-            eng_sim = 0.0
+        curr_eng = current_context.engagement_features
+        hist_eng = historical_context.engagement_features
+        if curr_eng is not None:
+            n = np.linalg.norm(curr_eng)
+            if n > 1e-8:
+                curr_eng = curr_eng / n
+        if hist_eng is not None:
+            n = np.linalg.norm(hist_eng)
+            if n > 1e-8:
+                hist_eng = hist_eng / n
 
-        # Combine similarities with weights
-        # You can tune these weights based on what matters more for your use case
-        text_weight = 0.5  # Text context importance
-        engagement_weight = 0.5  # Engagement pattern importance
+        eng_sim = self._cosine_similarity(curr_eng, hist_eng)
 
-        final_similarity = text_weight * text_sim + engagement_weight * eng_sim
-        print(text_sim,eng_sim)
-        # Clip to valid cosine similarity range
-        return np.clip(final_similarity, -1.0, 1.0)
+        final_similarity = (
+            weights["phase"] * phase_sim
+            + weights["concept"] * concept_sim
+            + weights["user_text"] * user_sim
+            + weights["ai_text"] * ai_sim
+            + weights["strategy"] * strat_sim
+            + weights["engagement"] * eng_sim
+        )
 
-    def _predict_contextual_reward(self, strategy: Strategy, current_context: np.ndarray,
-                                   historical_contexts: List[np.ndarray], historical_rewards: List[float]) -> float:
+        return float(final_similarity)
+
+    def _predict_contextual_reward(
+        self,
+        strategy: Strategy,
+        current_context: TurnContext,
+        historical_contexts: List[TurnContext],
+        historical_rewards: List[float],
+    ) -> float:
         """
         Predict reward using separate text/engagement similarity calculation.
         """
@@ -302,11 +279,10 @@ class ContextualBanditAgent:
             return 0.5
 
         # Calculate similarities using the new method
-        similarities = []
-        for hist_context in historical_contexts:
-            sim = self._calculate_contextual_similarity(current_context, hist_context)
-            similarities.append(sim)
-
+        similarities = [
+            self._calculate_contextual_similarity(current_context, hist_ctx)
+            for hist_ctx in historical_contexts
+        ]
         similarities = np.array(similarities)
         rewards = np.array(historical_rewards)
 
@@ -332,10 +308,10 @@ class ContextualBanditAgent:
     # ------------------------------------------------------------------
     # Updating
     # ------------------------------------------------------------------
-    def update(self, strategy: Strategy, context_vector: np.ndarray, reward: float):
+    def update(self, strategy: Strategy, context_object: TurnContext, reward: float):
         key = strategy.to_key()
         self.strategy_rewards[key].append(reward)
-        self.strategy_contexts[key].append(context_vector.copy())
+        self.strategy_contexts[key].append(context_object)
         max_memory = 100
         if len(self.strategy_rewards[key]) > max_memory:
             self.strategy_rewards[key] = self.strategy_rewards[key][-max_memory:]
@@ -425,25 +401,52 @@ class ContextualBanditAgent:
     # Optional save/load for persistence
     def save(self, filepath):
         import pickle
+
+        def ctx_to_dict(ctx: TurnContext) -> Dict:
+            return {
+                'session_phase': ctx.session_phase,
+                'target_concept_embedding': ctx.target_concept_embedding.tolist() if ctx.target_concept_embedding is not None else None,
+                'user_embedding': ctx.user_embedding.tolist() if ctx.user_embedding is not None else None,
+                'ai_embedding': ctx.ai_embedding.tolist() if ctx.ai_embedding is not None else None,
+                'strategy_sequence_embedding': ctx.strategy_sequence_embedding.tolist() if ctx.strategy_sequence_embedding is not None else None,
+                'engagement_features': ctx.engagement_features.tolist() if ctx.engagement_features is not None else None,
+            }
+
         state = {
             'strategy_rewards': dict(self.strategy_rewards),
-            'strategy_contexts': {k: np.stack(v).tolist() for k, v in self.strategy_contexts.items()},
+            'strategy_contexts': {k: [ctx_to_dict(c) for c in v] for k, v in self.strategy_contexts.items()},
             'total_selections': self.total_selections,
         }
+
         with open(filepath, 'wb') as f:
             pickle.dump(state, f)
 
     def load(self, filepath):
         import pickle
         from pathlib import Path
+
         path = Path(filepath)
         if not path.exists():
             return
+
         with open(path, 'rb') as f:
             state = pickle.load(f)
+
         self.total_selections = state.get('total_selections', 0)
+
         for k, rewards in state.get('strategy_rewards', {}).items():
             self.strategy_rewards[k] = list(rewards)
+
+        def dict_to_ctx(d: Dict) -> TurnContext:
+            return TurnContext(
+                session_phase=d.get('session_phase', 'exploration'),
+                target_concept_embedding=np.array(d['target_concept_embedding']) if d.get('target_concept_embedding') is not None else None,
+                user_embedding=np.array(d['user_embedding']) if d.get('user_embedding') is not None else None,
+                ai_embedding=np.array(d['ai_embedding']) if d.get('ai_embedding') is not None else None,
+                strategy_sequence_embedding=np.array(d['strategy_sequence_embedding']) if d.get('strategy_sequence_embedding') is not None else None,
+                engagement_features=np.array(d['engagement_features']) if d.get('engagement_features') is not None else None,
+            )
+
         for k, ctxs in state.get('strategy_contexts', {}).items():
-            self.strategy_contexts[k] = [np.array(c) for c in ctxs]
+            self.strategy_contexts[k] = [dict_to_ctx(c) for c in ctxs]
 

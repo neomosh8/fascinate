@@ -391,16 +391,24 @@ class ConversationOrchestrator:
             engagement_before = self.engagement_scorer.get_current_engagement()
             emotion_before = self.engagement_scorer.get_current_emotion()
     
-            # Build context vector before selecting strategy
-            context_vector = self.bandit_agent._build_context_vector()
-    
-            print("context vector:",context_vector)
-    
-            # 3. Bandit agent selects strategy
             if self.therapy_mode:
-                strategy = await self.therapeutic_manager.select_therapeutic_strategy()
+                thera_context = self.therapeutic_manager.get_session_summary()
+                session_phase = thera_context["session_phase"]
+                target_concept = thera_context["current_target"]
             else:
-                strategy = self.bandit_agent.select_strategy()
+                session_phase = "non_therapeutic"
+                target_concept = None
+
+            # Build context object before selecting strategy
+            context_object = self.bandit_agent._build_context_vector(session_phase, target_concept)
+
+            print("context vector:", context_object)
+
+            # 3. Bandit agent selects strategy
+            strategy = self.bandit_agent.select_strategy(
+                session_phase=session_phase,
+                target_concept=target_concept,
+            )
     
             self.logger.info(
                 f"Selected strategy: {strategy.tone}/{strategy.topic}/{strategy.emotion}/{strategy.hook}"
@@ -465,7 +473,7 @@ class ConversationOrchestrator:
             strategy.add_example(assistant_text, engagement_after - engagement_before)
     
             # 7. Update bandit agent
-            self.bandit_agent.update(strategy, context_vector, reward)
+            self.bandit_agent.update(strategy, context_object, reward)
     
             # Add turn to context history
             self.bandit_agent.context.add_turn(
@@ -541,7 +549,10 @@ class ConversationOrchestrator:
             self.is_running = True
 
             # Initial greeting with engagement tracking
-            strategy = self.bandit_agent.select_strategy()
+            strategy = self.bandit_agent.select_strategy(
+                session_phase="exploration",
+                target_concept=None,
+            )
             greeting = await self.gpt.generate_response("", strategy)
 
             if "update_transcript" in self.ui_callbacks:

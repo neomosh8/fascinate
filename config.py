@@ -96,43 +96,57 @@ def calculate_dynamic_tokens(turn_count: int) -> int:
 
 
 # Therapeutic Strategy Components
-THERAPEUTIC_TONES = [
-    "empathetic",
-    "validating",
-    "curious",
-    "gentle",
-    "reflective",
-    "supportive",
-]
+# --- NEW: Define Modalities with Descriptions for Embedding ---
+# This dictionary is the new "brain" for selecting and describing approaches.
+# The descriptions are crafted to be both human-readable and semantically rich for embedding.
+THERAPEUTIC_MODALITIES = {
+    "ifs": {
+        "description": (
+            "an Internal Family Systems (IFS) approach. Gently personify the user's feelings "
+            "as 'parts' of them (e.g., 'a part of you that feels tension,' 'the playful part'). "
+            "Explore the positive intention behind each part, especially the protective ones. "
+            "The goal is to foster curiosity and compassion for their inner world."
+        )
+    },
+    "somatic": {
+        "description": (
+            "a Somatic (body-based) approach. Guide the user to notice the physical sensations "
+            "connected to their emotions (e.g., 'Where do you feel that in your body?'). "
+            "Focus on tracking sensations like heat, tension, or energy without judgment. "
+            "The goal is to help them process emotions through the body."
+        )
+    },
+    "narrative": {
+        "description": (
+            "a Narrative Therapy approach. Focus on the 'story' the user is telling about the problem. "
+            "Help them externalize the problem (e.g., 'What has The Anxiety been telling you?'). "
+            "Look for 'exceptions' or moments when the problem wasn't in charge. "
+            "The goal is to help them see themselves as separate from the problem and re-author their story."
+        )
+    },
+    "cbt": {
+        "description": (
+            "a Cognitive Behavioral Therapy (CBT) approach. Focus on the link between a thought, a feeling, and a behavior. "
+            "Gently help the user identify the specific thoughts that arise with the target feeling. "
+            "You might explore the evidence for that thought or consider alternative perspectives. "
+            "The goal is to challenge and reframe unhelpful thought patterns."
+        )
+    },
+    "solution_focused": {
+        "description": (
+            "a Solution-Focused Brief Therapy (SFBT) approach. Keep the focus on the future and potential solutions. "
+            "Use questions that presuppose change, like the 'Miracle Question' (e.g., 'If this feeling was gone tomorrow, "
+            "what would be the first small thing you'd notice?'). Look for the user's existing strengths and resources."
+        )
+    }
+}
 
-EXPLORATION_DOMAINS = [
-    "family",
-    "relationships",
-    "childhood",
-    "career",
-    "dreams",
-    "fears",
-    "identity",
-    "loss",
-]
+# The list of approaches is now derived from the keys of the dictionary.
+THERAPEUTIC_APPROACHES = list(THERAPEUTIC_MODALITIES.keys())
+THERAPEUTIC_TONES = ["empathetic", "validating", "curious", "gentle", "reflective", "supportive"]
+EXPLORATION_DOMAINS = ["childhood", "relationships", "dreams", "fears", "identity", "career", "family"]
+THERAPEUTIC_HOOKS = ["Help me understand...", "I'm curious about...", "Tell me more about...", "What comes up for you...", "It sounds like...", "I'm noticing..."]
 
-THERAPEUTIC_APPROACHES = [
-    "cognitive",
-    "mindful",
-    "exploratory",
-    "validating",
-    "somatic",
-    "narrative",
-]
-
-THERAPEUTIC_HOOKS = [
-    "I'm noticing...",
-    "It sounds like...",
-    "Help me understand...",
-    "What comes up for you...",
-    "Tell me more about...",
-    "I'm curious about...",
-]
 
 
 @dataclass

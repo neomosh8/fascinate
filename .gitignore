@@ -17,3 +17,5 @@
 *.json
 models/session_summary_20250718_184054.json
 /therapy/__pycache__
+rl/.DS_Store
+.DS_Store

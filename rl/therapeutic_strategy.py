@@ -1,17 +1,58 @@
 """Therapeutic strategy with voice parameters."""
 
+# Import the EmbeddingService
+from rl.embedding_service import EmbeddingService
+
 from dataclasses import dataclass
 from typing import Optional, Dict
 import numpy as np
 import random
 
-from .strategy import Strategy
+from rl.strategy import Strategy
 from config import (
     THERAPEUTIC_TONES,
     EXPLORATION_DOMAINS,
     THERAPEUTIC_APPROACHES,
     THERAPEUTIC_HOOKS,
+    THERAPEUTIC_MODALITIES
 )
+
+
+# --- NEW: Helper function for comparing embeddings ---
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """Calculates cosine similarity between two vectors."""
+    dot_product = np.dot(vec1, vec2)
+    norm_vec1 = np.linalg.norm(vec1)
+    norm_vec2 = np.linalg.norm(vec2)
+    if norm_vec1 == 0 or norm_vec2 == 0:
+        return 0.0  # Avoid division by zero
+    return dot_product / (norm_vec1 * norm_vec2)
+
+
+# --- NEW: Function to select the best approach using embeddings ---
+def choose_best_approach_by_embedding(target_concept: str, embedding_service: EmbeddingService) -> str:
+    """
+    Chooses the most relevant therapeutic approach by comparing embeddings.
+    This is more semantically robust than keyword matching.
+    """
+    if not target_concept.strip():
+        return random.choice(THERAPEUTIC_APPROACHES)
+
+    concept_embedding = embedding_service.embed_text(target_concept)
+
+    similarities = {}
+    for approach, data in THERAPEUTIC_MODALITIES.items():
+        # Embed the rich description of the modality
+        approach_embedding = embedding_service.embed_text(data['description'])
+        # Calculate and store the similarity score
+        sim = cosine_similarity(concept_embedding, approach_embedding)
+        similarities[approach] = sim
+
+    # Return the approach with the highest similarity score
+    if not similarities:
+        return random.choice(THERAPEUTIC_APPROACHES)
+
+    return max(similarities, key=similarities.get)
 
 
 @dataclass
@@ -36,6 +77,7 @@ class TherapeuticStrategy(Strategy):
         target_concept: Optional[str] = None,
         index: int = 0,
     ):
+        # The superclass maps these to self.tone, self.topic, self.emotion, self.hook
         super().__init__(tone, domain, approach, hook, index)
         self.exploration_mode = exploration_mode
         self.target_concept = target_concept
@@ -59,20 +101,26 @@ class TherapeuticStrategy(Strategy):
             self.voice_warmth = params["warmth"]
 
     def to_prompt(self) -> str:
+        # --- MODIFIED: Use the rich description from the dictionary ---
+        # self.emotion holds the approach name (e.g., "ifs") from the __init__ call
+        approach_description = THERAPEUTIC_MODALITIES[self.emotion]['description']
+
         if self.exploration_mode:
+            # The prompt now includes the detailed instructions for the chosen approach
             return (
                 f"Adopt a {self.tone} therapeutic tone. Gently explore topics related to {self.topic} "
-                f"using {self.emotion} approach. use a natural variation of  '{self.hook}' in talking and see what resonates. "
+                f"using {approach_description} " # Changed from `{self.emotion} approach`
+                f"Use a natural variation of '{self.hook}' in talking and see what resonates. "
                 "Keep it exploratory and light - you're discovering what matters to this person. "
                 "Be curious about their inner world. Don't go too deep yet, just see what emerges."
             )
         else:
             return (
-                f"Use a {self.tone} therapeutic tone to deeply explore {self.target_concept}. "
-                f"Apply {self.emotion} therapeutic techniques. use a natural variation of  '{self.hook}' in your talking and go deeper "
-                "into this area that showed strong emotional activation. This concept triggered significant "
-                "neural response, make meaningful deep conversation turn by turn, don't hover and stall"
-                "don't give me bullet points or numbered list, keep it directed and conversational"
+                f"Use a {self.tone} therapeutic tone to deeply explore the concept of '{self.target_concept}'. "
+                f"To do this, apply {approach_description} " # Changed from `Apply {self.emotion} therapeutic techniques`
+                f"Use a natural variation of '{self.hook}' in your talking to go deeper. "
+                "This concept triggered significant emotional activation. Make the conversation meaningful "
+                "and directed. Do not use bullet points or numbered lists."
             )
 
     def get_emotion_adapted_tts_params(self, user_emotion: float, user_engagement: float) -> Dict[str, float]:
@@ -126,7 +174,7 @@ class TherapeuticStrategy(Strategy):
 
     def get_voice_signature(self) -> str:
         return (
-            f"spd:{self.base_voice_speed:.2f},pit:{self.base_voice_pitch:.2f}," \
+            f"spd:{self.base_voice_speed:.2f},pit:{self.base_voice_pitch:.2f}," 
             f"eng:{self.base_voice_energy:.2f},wrm:{self.voice_warmth:.2f}"
         )
 
@@ -141,12 +189,16 @@ class TherapeuticStrategy(Strategy):
             index=index,
         )
 
+    # --- MODIFIED: This method now requires an EmbeddingService instance ---
     @classmethod
-    def create_exploitation_strategy(cls, target_concept: str, index: int = 0) -> "TherapeuticStrategy":
+    def create_exploitation_strategy(cls, target_concept: str, embedding_service: EmbeddingService, index: int = 0) -> "TherapeuticStrategy":
+        # Intelligently choose the best approach using semantic similarity
+        best_approach = choose_best_approach_by_embedding(target_concept, embedding_service)
+
         return cls(
             tone=random.choice(["empathetic", "validating", "supportive"]),
-            domain="deep_exploration",
-            approach=random.choice(["cognitive", "narrative", "somatic"]),
+            domain="deep_exploration", # 'domain' maps to 'topic' in the superclass
+            approach=best_approach,    # 'approach' maps to 'emotion' in the superclass
             hook=random.choice(THERAPEUTIC_HOOKS),
             exploration_mode=False,
             target_concept=target_concept,

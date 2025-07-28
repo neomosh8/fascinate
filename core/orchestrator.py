@@ -210,6 +210,8 @@ class ConversationOrchestrator:
             self,
             engagement_before: float,
             engagement_after: float,
+            emotion_before: float,  # NEW parameter
+            emotion_after: float,  # NEW parameter
             tts_duration: float,
             user_spoke: bool,
             session_duration: float,
@@ -217,49 +219,74 @@ class ConversationOrchestrator:
             assistant_text: str,
             context_type: str = "normal",
     ) -> float:
-        """Calculate reward using simple raw engagement delta (no normalization)."""
+        """
+        Calculate an adaptive reward that considers both engagement and emotion.
+        It rewards productive focus (high engagement + neutral/positive emotion)
+        and penalizes agitation (high engagement + negative emotion).
+        """
 
-        # 1. Raw engagement delta - no normalization!
+        # --- Part 1: Core Engagement Reward (same as before) ---
         engagement_delta = engagement_after - engagement_before
-
-        # 2. Base reward is amplified delta
         reward = engagement_delta * 10.0  # Scale to meaningful range
-        print(reward)
-        print("engagement_after:",engagement_after)
-        print("engagement_before:",engagement_before)
-        # 3. Absolute engagement level bonuses
+
+        # Absolute engagement level bonuses/penalties
         if engagement_after > 0.7:
             reward += 0.5  # High engagement bonus
         elif engagement_after > 0.5:
             reward += 0.2  # Medium engagement bonus
-        elif engagement_after > 0.4:
-            reward += 0.1  # Slight bonus for above-low
 
-        # 4. Absolute engagement penalties
         if engagement_after < 0.3:
             reward -= 0.5  # Low engagement penalty
         elif engagement_after < 0.35:
             reward -= 0.2  # Below-medium penalty
 
-        # 5. User interaction bonus
+        # --- Part 2: Emotional Quality Modulation (The New Logic) ---
+
+        # We define "agitation" as an increase in engagement while emotion becomes negative.
+        # We define "flow/insight" as an increase in engagement while emotion becomes positive.
+        # We define "soothing/regulation" as moving from a negative to a neutral/positive state.
+
+        # A) Penalize Agitation: High engagement is bad if the user feels bad.
+        if engagement_after > 0.6 and emotion_after < 0.4:
+            # This is the key signature of being provoked or distressed.
+            # We heavily penalize this state.
+            reward -= 1.5  # Strong penalty for creating a negative, high-arousal state.
+            print(f"📉 Penalty: Agitation detected (Eng: {engagement_after:.2f}, Emo: {emotion_after:.2f})")
+
+        # B) Reward Productive Flow/Insight: High engagement is great if the user feels good.
+        if engagement_after > 0.7 and emotion_after > 0.6:
+            # This is the ideal "flow" state for deep, productive work.
+            reward += 1.0  # Strong bonus for achieving a positive, focused state.
+            print(f"📈 Bonus: Flow/Insight detected (Eng: {engagement_after:.2f}, Emo: {emotion_after:.2f})")
+
+        # C) Reward Successful Co-Regulation:
+        if emotion_before < 0.45 and emotion_after > 0.5:
+            # The agent successfully soothed the user or helped them regulate.
+            # This is a highly valuable therapeutic action.
+            reward += 1.2  # Very strong bonus for emotional regulation.
+            print(f"📈 Bonus: Successful emotional regulation (Emo: {emotion_before:.2f} -> {emotion_after:.2f})")
+
+        # --- Part 3: Interaction & Contextual Bonuses (same as before) ---
+
+        # User interaction bonus
         if user_spoke:
             response_quality = self._assess_response_quality(user_text, assistant_text)
             reward += 0.15 * response_quality
-            print("reward after user:",reward,response_quality)
-        # 6. Context-specific bonuses (keep these)
+
+        # Context-specific bonuses
         if context_type == "auto_advance" and engagement_after > 0.6:
             reward += 0.3
         elif context_type == "cold_start" and engagement_after > 0.4:
             reward += 0.2
 
-
-        # Store delta for debugging (remove old normalization tracking)
+        # Store delta for debugging (can be removed later)
         if not hasattr(self, 'delta_history'):
             self.delta_history = []
         self.delta_history.append(engagement_delta)
         if len(self.delta_history) > 20:
             self.delta_history.pop(0)
 
+        print(f"🏆 Final Reward: {reward:.3f}")
         return reward
 
     def _assess_response_quality(self, user_text: str, assistant_text: str) -> float:
@@ -410,14 +437,16 @@ class ConversationOrchestrator:
                 self, "session_start_time", time.time()
             )
             reward = self._calculate_adaptive_reward(
-                engagement_before,
-                engagement_after,
-                tts_end - tts_start,
-                user_spoke,
-                session_duration,
-                user_text,
-                assistant_text,
-                self.bandit_agent._classify_context(user_text, user_spoke),
+                engagement_before=engagement_before,
+                engagement_after=engagement_after,
+                emotion_before=emotion_before,        # PASS the new parameter
+                emotion_after=emotion_after,          # PASS the new parameter
+                tts_duration=tts_end - tts_start,
+                user_spoke=user_spoke,
+                session_duration=session_duration,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                context_type=self.bandit_agent.classify_current_context(), # Use new classify method
             )
 
             if self.therapy_mode:

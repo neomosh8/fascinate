@@ -50,3 +50,54 @@ class ConceptTracker:
             'emotional_consistency': 1 - np.std(emotions),  # Low std = consistent emotion
             'valence': 'positive' if np.mean(emotions) > 0.5 else 'negative'
         }
+
+    # In concept_tracker.py, inside the ConceptTracker class
+
+    def get_exploration_status(self) -> Dict:
+        """
+        Generates a summary of all tracked concepts, sorted by importance.
+        This provides a comprehensive overview of what has been discovered.
+        """
+        if not self.concept_activations:
+            return {
+                "total_concepts_tracked": 0,
+                "top_concepts": [],
+                "concept_details": {}
+            }
+
+        all_concepts = []
+        for concept, eng_scores in self.concept_activations.items():
+            avg_engagement = np.mean(eng_scores)
+            emotion_scores = self.concept_emotions.get(concept, [])
+
+            if emotion_scores:
+                emotional_intensity = np.mean([abs(e - 0.5) * 2 for e in emotion_scores])
+                avg_emotion = np.mean(emotion_scores)
+            else:
+                emotional_intensity = 0.0
+                avg_emotion = 0.5
+
+            # The same scoring logic as get_hot_concepts
+            combined_score = avg_engagement * (1 + emotional_intensity)
+
+            all_concepts.append({
+                "concept": concept,
+                "score": combined_score,
+                "mentions": self.concept_mentions.get(concept, 0),
+                "avg_engagement": avg_engagement,
+                "avg_emotion": avg_emotion,
+                "emotional_intensity": emotional_intensity
+            })
+
+        # Sort all concepts by their combined score in descending order
+        all_concepts.sort(key=lambda x: x['score'], reverse=True)
+
+        return {
+            "total_concepts_tracked": len(all_concepts),
+            # Return the top 5 concepts for a quick summary
+            "top_concepts": [
+                (item['concept'], item['score']) for item in all_concepts[:5]
+            ],
+            # Provide the full sorted list for detailed analysis
+            "concept_details": all_concepts
+        }

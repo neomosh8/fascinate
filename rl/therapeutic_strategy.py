@@ -204,3 +204,76 @@ class TherapeuticStrategy(Strategy):
             target_concept=target_concept,
             index=index,
         )
+
+    # In therapeutic_strategy.py (add this new class at the bottom)
+
+class TherapeuticStrategySpace:
+        """Manages the creation and mutation of TherapeuticStrategy objects."""
+
+        def __init__(self, embedding_service: EmbeddingService):
+            """
+            Initializes the space. Note that unlike the old StrategySpace, we don't
+            pre-generate all combinations because the 'approach' for exploitation is
+            determined dynamically.
+            """
+            self.embedding_service = embedding_service
+
+        def get_random_strategy(self) -> TherapeuticStrategy:
+            """
+            Creates a completely random TherapeuticStrategy for exploration.
+            This replaces the old create_exploration_strategy classmethod.
+            """
+            return TherapeuticStrategy(
+                tone=random.choice(THERAPEUTIC_TONES),
+                domain=random.choice(EXPLORATION_DOMAINS),
+                approach=random.choice(THERAPEUTIC_APPROACHES),
+                hook=random.choice(THERAPEUTIC_HOOKS),
+                exploration_mode=True,
+                index=-1  # Index isn't as important in this dynamic system
+            )
+
+        def get_exploitation_strategy(self, target_concept: str) -> TherapeuticStrategy:
+            """
+            Creates a targeted TherapeuticStrategy for exploitation.
+            This replaces the old create_exploitation_strategy classmethod.
+            """
+            best_approach = choose_best_approach_by_embedding(target_concept, self.embedding_service)
+
+            return TherapeuticStrategy(
+                tone=random.choice(["empathetic", "validating", "supportive"]),
+                domain="deep_exploration",
+                approach=best_approach,
+                hook=random.choice(THERAPEUTIC_HOOKS),
+                exploration_mode=False,
+                target_concept=target_concept,
+                index=-1,
+            )
+
+        def get_mutated_strategy(self, base_strategy: TherapeuticStrategy) -> TherapeuticStrategy:
+            """
+            Returns a slightly different therapeutic strategy for smart exploration.
+            """
+            # Create a mutable copy
+            new_strategy_args = {
+                "tone": base_strategy.tone,
+                "domain": base_strategy.topic,  # Note: .topic from superclass
+                "approach": base_strategy.emotion,  # Note: .emotion from superclass
+                "hook": base_strategy.hook,
+                "exploration_mode": base_strategy.exploration_mode,
+                "target_concept": base_strategy.target_concept,
+                "index": base_strategy.index
+            }
+
+            # Mutate one component
+            component_to_mutate = random.choice(["tone", "domain", "approach", "hook"])
+
+            if component_to_mutate == "tone":
+                new_strategy_args["tone"] = random.choice(THERAPEUTIC_TONES)
+            elif component_to_mutate == "domain":
+                new_strategy_args["domain"] = random.choice(EXPLORATION_DOMAINS)
+            elif component_to_mutate == "approach":
+                new_strategy_args["approach"] = random.choice(THERAPEUTIC_APPROACHES)
+            else:  # hook
+                new_strategy_args["hook"] = random.choice(THERAPEUTIC_HOOKS)
+
+            return TherapeuticStrategy(**new_strategy_args)

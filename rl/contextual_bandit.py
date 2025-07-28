@@ -1,11 +1,11 @@
-import random
 
 import numpy as np
 from collections import deque, defaultdict
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 from dataclasses import dataclass
+import random
 
-
+from rl.therapeutic_strategy import TherapeuticStrategy, TherapeuticStrategySpace
 from rl.strategy import Strategy, StrategySpace
 from .embedding_service import EmbeddingService
 
@@ -53,7 +53,7 @@ class ContextualBanditAgent:
     def __init__(self, context_window_size: int = 5):
         self.context = ConversationContext(context_window_size)
         self.embedding_service = EmbeddingService()
-        self.strategy_space = StrategySpace()
+        self.strategy_space: Union[StrategySpace, TherapeuticStrategySpace] = StrategySpace()
 
         # Experience storage
         self.strategy_rewards: Dict[str, List[float]] = defaultdict(list)
@@ -68,6 +68,13 @@ class ContextualBanditAgent:
             return "auto_advance"
         return "normal"
 
+    def set_strategy_space(self, therapy_mode: bool):
+        if therapy_mode:
+            print("🧠 Bandit is now in THERAPEUTIC mode.")
+            self.strategy_space = TherapeuticStrategySpace(self.embedding_service)
+        else:
+            print("🤖 Bandit is now in STANDARD mode.")
+            self.strategy_space = StrategySpace()
     def classify_current_context(self) -> str:
         recent_user_msgs, _, _, _ = self.context.get_recent_context(1)
         user_msg = recent_user_msgs[-1] if recent_user_msgs else ""
@@ -123,37 +130,54 @@ class ContextualBanditAgent:
     # ------------------------------------------------------------------
     # Strategy selection
     # ------------------------------------------------------------------
+        # In contextual_bandit.py, inside the ContextualBanditAgent class
+
     def select_strategy(
             self,
             session_phase: str,
             target_concept: Optional[str],
-            num_candidates: int = 20,  # Consider a pool of 20 candidates
-    ) -> Strategy:
+            num_candidates: int = 20,
+    ) -> Union[Strategy, TherapeuticStrategy]:
         """
         Selects the best strategy by predicting rewards for a diverse set of candidates
-        based on the rich therapeutic context.
+        based on the rich therapeutic context. This method adapts its candidate generation
+        based on whether it's in standard or therapeutic mode.
         """
         context_object = self._build_context_vector(session_phase, target_concept)
 
-        # --- Candidate Generation: Get a diverse pool to evaluate ---
+        # --- 1. Candidate Generation ---
+        # Create a diverse pool of strategies to evaluate.
 
-        # 1. Start with the top-performing strategies from memory (exploitation)
-        # This ensures we consider strategies that have worked well in the past.
+        # a) Start with the top-performing strategies from memory (Exploitation)
+        # This ensures we always consider strategies that have proven successful.
         candidates = self._get_top_performing_strategies(n=5)
 
-        # 2. Add random strategies to ensure diversity and discovery (exploration)
-        num_random_needed = num_candidates - len(candidates)
-        if num_random_needed > 0:
-            candidates.extend([self.strategy_space.get_random_strategy() for _ in range(num_random_needed)])
+        # b) Add new strategies to ensure diversity and discovery (Exploration)
+        num_new_needed = num_candidates - len(candidates)
+        if num_new_needed > 0:
+            new_candidates = []
+            is_therapeutic = isinstance(self.strategy_space, TherapeuticStrategySpace)
 
-        # 3. Ensure the pool has no duplicates
-        candidates = list({strat.to_key(): strat for strat in candidates}.values())
+            if is_therapeutic and session_phase == 'exploitation' and target_concept:
+                # Smart Generation: If in therapy exploitation, generate candidates tailored to the target concept.
+                for _ in range(num_new_needed):
+                    new_candidates.append(self.strategy_space.get_exploitation_strategy(target_concept))
+            else:
+                # Standard Generation: For therapy exploration or non-therapy mode, generate random candidates.
+                for _ in range(num_new_needed):
+                    new_candidates.append(self.strategy_space.get_random_strategy())
 
-        if not candidates:
-            # This is a fallback for the very first turn if memory is empty
+            candidates.extend(new_candidates)
+
+        # c) Ensure the pool has no duplicates and is not empty
+        if candidates:
+            candidates = list({strat.to_key(): strat for strat in candidates}.values())
+        else:
+            # Fallback for the very first turn when memory is empty
             return self.strategy_space.get_random_strategy()
 
-        # --- Scoring: Predict the reward for each candidate in the current context ---
+        # --- 2. Scoring ---
+        # Predict the reward for each candidate in the current context.
         scored_candidates = []
         for strat in candidates:
             key = strat.to_key()
@@ -168,23 +192,26 @@ class ContextualBanditAgent:
         # Sort candidates by their predicted reward, highest first
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
 
-        # --- Final Selection with Epsilon-Greedy Exploration ---
+        # --- 3. Final Selection with Epsilon-Greedy ---
+        # With a small probability, explore a new path instead of exploiting the best one.
+        # This prevents the agent from getting stuck on a single strategy too early.
 
-        # With a small probability, choose to explore instead of exploiting the best option.
-        # This prevents the agent from getting stuck in a local optimum.
-        if random.random() < 0.35:  # 15% chance to explore
-            print("🤖 Bandit is exploring (mutating best choice)...")
+        # Use a slightly higher exploration rate in the 'exploration' phase
+        exploration_rate = 0.80 if session_phase == 'exploration' else 0.50
+
+        if random.random() < exploration_rate:
+            print(f"🤖 Bandit is exploring (rate: {exploration_rate * 100}%) by mutating the best choice...")
             # "Smart" exploration: take the best predicted strategy and change it slightly.
             best_predicted_strategy = scored_candidates[0][0]
             return self.strategy_space.get_mutated_strategy(best_predicted_strategy)
 
-        # In most cases (65% of the time), exploit the best-known option.
+        # Default action: exploit the best-predicted strategy.
         best_strategy = scored_candidates[0][0]
         predicted_score = scored_candidates[0][1]
         self.total_selections += 1
 
         print(
-            f"🤖 Bandit chose: {best_strategy.to_key()} for phase '{session_phase}' "
+            f"🤖 Bandit chose (Exploit): {best_strategy.to_key()} for phase '{session_phase}' "
             f"with predicted reward {predicted_score:.2f}"
         )
         return best_strategy

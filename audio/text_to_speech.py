@@ -293,7 +293,7 @@ class TextToSpeech:
                 hume_speed *= 0.9  # Slower for deep exploitation
 
         # Ensure within Hume's bounds (fixed to match documentation)
-        return max(0.25, min(1.7, hume_speed))  # Conservative upper bound
+        return max(0.25, min(1.3, hume_speed))  # Conservative upper bound
 
     def _get_trailing_silence_from_strategy(self, strategy: Strategy, user_emotion: float = 0.5,
                                             user_engagement: float = 0.5) -> float:

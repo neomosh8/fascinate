@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 from collections import deque, defaultdict
 from typing import List, Tuple, Optional, Dict
@@ -122,43 +124,69 @@ class ContextualBanditAgent:
     # Strategy selection
     # ------------------------------------------------------------------
     def select_strategy(
-        self,
-        session_phase: str,
-        target_concept: Optional[str],
-        num_candidates: int = 15,
+            self,
+            session_phase: str,
+            target_concept: Optional[str],
+            num_candidates: int = 20,  # Consider a pool of 20 candidates
     ) -> Strategy:
-        """Select the best strategy based on provided therapeutic context."""
+        """
+        Selects the best strategy by predicting rewards for a diverse set of candidates
+        based on the rich therapeutic context.
+        """
         context_object = self._build_context_vector(session_phase, target_concept)
 
-        all_tried_strategies = [Strategy.from_key(k) for k in self.strategy_rewards.keys()]
+        # --- Candidate Generation: Get a diverse pool to evaluate ---
 
-        if not all_tried_strategies:
+        # 1. Start with the top-performing strategies from memory (exploitation)
+        # This ensures we consider strategies that have worked well in the past.
+        candidates = self._get_top_performing_strategies(n=5)
+
+        # 2. Add random strategies to ensure diversity and discovery (exploration)
+        num_random_needed = num_candidates - len(candidates)
+        if num_random_needed > 0:
+            candidates.extend([self.strategy_space.get_random_strategy() for _ in range(num_random_needed)])
+
+        # 3. Ensure the pool has no duplicates
+        candidates = list({strat.to_key(): strat for strat in candidates}.values())
+
+        if not candidates:
+            # This is a fallback for the very first turn if memory is empty
             return self.strategy_space.get_random_strategy()
 
+        # --- Scoring: Predict the reward for each candidate in the current context ---
         scored_candidates = []
-        for strat in all_tried_strategies:
+        for strat in candidates:
             key = strat.to_key()
-            contexts = self.strategy_contexts.get(key, [])
-            rewards = self.strategy_rewards.get(key, [])
-            predicted = self._predict_contextual_reward(strat, context_object, contexts, rewards)
-            scored_candidates.append((strat, predicted))
+            historical_contexts = self.strategy_contexts.get(key, [])
+            historical_rewards = self.strategy_rewards.get(key, [])
 
+            predicted_reward = self._predict_contextual_reward(
+                strat, context_object, historical_contexts, historical_rewards
+            )
+            scored_candidates.append((strat, predicted_reward))
+
+        # Sort candidates by their predicted reward, highest first
         scored_candidates.sort(key=lambda x: x[1], reverse=True)
-        top_candidates = [s for s, _ in scored_candidates[:num_candidates]]
 
-        import random
-        if random.random() < 0.2:
-            print("🤖 Bandit is exploring (random choice)...")
-            if session_phase == 'exploitation' and top_candidates:
-                return self.strategy_space.get_mutated_strategy(top_candidates[0])
-            return self.strategy_space.get_random_strategy()
+        # --- Final Selection with Epsilon-Greedy Exploration ---
 
-        if not top_candidates:
-            return self.strategy_space.get_random_strategy()
+        # With a small probability, choose to explore instead of exploiting the best option.
+        # This prevents the agent from getting stuck in a local optimum.
+        if random.random() < 0.35:  # 15% chance to explore
+            print("🤖 Bandit is exploring (mutating best choice)...")
+            # "Smart" exploration: take the best predicted strategy and change it slightly.
+            best_predicted_strategy = scored_candidates[0][0]
+            return self.strategy_space.get_mutated_strategy(best_predicted_strategy)
 
-        best_strategy = top_candidates[0]
+        # In most cases (65% of the time), exploit the best-known option.
+        best_strategy = scored_candidates[0][0]
+        predicted_score = scored_candidates[0][1]
         self.total_selections += 1
-        print(f"🤖 Bandit chose: {best_strategy.to_key()} for phase '{session_phase}'")
+
+        print(
+            f"🤖 Bandit chose: {best_strategy.to_key()} for phase '{session_phase}' "
+            f"with predicted reward {predicted_score:.2f}"
+        )
         return best_strategy
 
 
@@ -398,11 +426,11 @@ class ContextualBanditAgent:
         }
         return summary
 
-    # Optional save/load for persistence
     def save(self, filepath):
         import pickle
 
         def ctx_to_dict(ctx: TurnContext) -> Dict:
+            """Helper to convert the TurnContext dataclass to a JSON-serializable dictionary."""
             return {
                 'session_phase': ctx.session_phase,
                 'target_concept_embedding': ctx.target_concept_embedding.tolist() if ctx.target_concept_embedding is not None else None,
@@ -412,41 +440,59 @@ class ContextualBanditAgent:
                 'engagement_features': ctx.engagement_features.tolist() if ctx.engagement_features is not None else None,
             }
 
+        # Prepare the state for saving
         state = {
             'strategy_rewards': dict(self.strategy_rewards),
-            'strategy_contexts': {k: [ctx_to_dict(c) for c in v] for k, v in self.strategy_contexts.items()},
+            'strategy_contexts': {
+                key: [ctx_to_dict(context) for context in contexts]
+                for key, contexts in self.strategy_contexts.items()
+            },
             'total_selections': self.total_selections,
         }
 
         with open(filepath, 'wb') as f:
             pickle.dump(state, f)
+        print(f"✅ Bandit state saved to {filepath}")
 
+    # ==============================================================================
+    # FUNCTION 3: load (This function needs to be updated to restore the context object)
+    # ==============================================================================
     def load(self, filepath):
         import pickle
         from pathlib import Path
 
         path = Path(filepath)
         if not path.exists():
+            print(f"No bandit state file found at {filepath}, starting fresh.")
             return
 
         with open(path, 'rb') as f:
             state = pickle.load(f)
 
-        self.total_selections = state.get('total_selections', 0)
-
-        for k, rewards in state.get('strategy_rewards', {}).items():
-            self.strategy_rewards[k] = list(rewards)
-
         def dict_to_ctx(d: Dict) -> TurnContext:
+            """Helper to reconstruct the TurnContext dataclass from a loaded dictionary."""
             return TurnContext(
                 session_phase=d.get('session_phase', 'exploration'),
-                target_concept_embedding=np.array(d['target_concept_embedding']) if d.get('target_concept_embedding') is not None else None,
+                target_concept_embedding=np.array(d['target_concept_embedding']) if d.get(
+                    'target_concept_embedding') is not None else None,
                 user_embedding=np.array(d['user_embedding']) if d.get('user_embedding') is not None else None,
                 ai_embedding=np.array(d['ai_embedding']) if d.get('ai_embedding') is not None else None,
-                strategy_sequence_embedding=np.array(d['strategy_sequence_embedding']) if d.get('strategy_sequence_embedding') is not None else None,
-                engagement_features=np.array(d['engagement_features']) if d.get('engagement_features') is not None else None,
+                strategy_sequence_embedding=np.array(d['strategy_sequence_embedding']) if d.get(
+                    'strategy_sequence_embedding') is not None else None,
+                engagement_features=np.array(d['engagement_features']) if d.get(
+                    'engagement_features') is not None else None,
             )
 
-        for k, ctxs in state.get('strategy_contexts', {}).items():
-            self.strategy_contexts[k] = [dict_to_ctx(c) for c in ctxs]
+        self.total_selections = state.get('total_selections', 0)
+
+        # Use defaultdict to handle missing keys gracefully
+        self.strategy_rewards = defaultdict(list, state.get('strategy_rewards', {}))
+
+        # Reconstruct the contexts dictionary
+        loaded_contexts = state.get('strategy_contexts', {})
+        self.strategy_contexts = defaultdict(list)
+        for key, context_list_of_dicts in loaded_contexts.items():
+            self.strategy_contexts[key] = [dict_to_ctx(ctx_dict) for ctx_dict in context_list_of_dicts]
+
+        print(f"✅ Bandit state successfully loaded from {filepath}")
 

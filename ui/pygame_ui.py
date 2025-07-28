@@ -431,7 +431,7 @@ class PygameConversationUI:
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         self._layout_buttons()
 
-        pygame.display.set_caption('EEG-Driven Conversation with RL')
+        pygame.display.set_caption('neocore AI Therapist - POC')
 
         # Colors
         self.bg_color = (10, 15, 20)
@@ -829,7 +829,7 @@ class PygameConversationUI:
         """Update audio level for sphere visualization."""
         # Check both pygame audio AND orchestrator AI speaking state
         if pygame.mixer.music.get_busy() or self.orchestrator.ai_speaking:
-            self.audio_level = random.uniform(0.3, 0.8)
+            self.audio_level = random.uniform(0.3, 1)
         else:
             self.audio_level *= 0.95  # Decay when no audio
 

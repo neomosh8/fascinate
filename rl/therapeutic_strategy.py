@@ -188,7 +188,7 @@ class TherapeuticStrategy(Strategy):
         self.base_voice_pitch = np.clip(self.base_voice_pitch, -0.3, 0.3)
         self.base_voice_energy = np.clip(self.base_voice_energy, 0.7, 1.3)
         self.voice_warmth = np.clip(self.voice_warmth, 0.7, 1.3)
-        
+
     def get_voice_signature(self) -> str:
         return (
             f"spd:{self.base_voice_speed:.2f},pit:{self.base_voice_pitch:.2f}," 

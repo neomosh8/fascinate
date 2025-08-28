@@ -178,8 +178,25 @@ class GPTConversation:
             else:
                 phase_context = f"\n🎯 EXPLOITATION PHASE: Focus deeply on {getattr(strategy, 'target_concept', 'the core topic')}. Build systematically on what's working."
 
-        # System prompt body remains unchanged, with optional TTS guidelines appended
-        system_prompt = f"""
+        # System prompt body with special handling for the first message
+        if turn_count == 0 or (
+            additional_context and "first message" in additional_context.lower()
+        ):
+            system_prompt = f"""
+{strategy.to_prompt_with_memory()}
+{phase_context}
+
+IMPORTANT: This is the FIRST message of the session. You should:
+- Introduce yourself warmly
+- Set a comfortable, welcoming tone
+- Briefly explain you're here to have a supportive conversation
+- Ask an open-ended question to start the dialogue
+- Keep it brief and natural
+
+Example opening: "Hey there, I'm here to chat with you today. How are you doing?"
+"""
+        else:
+            system_prompt = f"""
 {strategy.to_prompt_with_memory()}
 {phase_context}
 

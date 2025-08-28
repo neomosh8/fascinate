@@ -73,6 +73,7 @@ class ConversationOrchestrator:
         # State tracking
         self.last_engagement = 0.5
         self.turn_count = 0
+        self.is_first_message = True
         self.is_running = False
 
         # Enhanced reward calculation
@@ -549,12 +550,26 @@ class ConversationOrchestrator:
             await self.eeg_manager.start_streaming(client)
             self.is_running = True
 
-            # Initial greeting with engagement tracking
-            strategy = self.bandit_agent.select_strategy(
-                session_phase="exploration",
-                target_concept=None,
+            # FIX: Initial greeting should be aware it's the first message
+            if self.therapy_mode:
+                # Create a special first-message strategy
+                strategy = self.bandit_agent.select_strategy(
+                    session_phase="greeting",  # Special phase
+                    target_concept=None,
+                )
+            else:
+                strategy = self.bandit_agent.select_strategy(
+                    session_phase="exploration",
+                    target_concept=None,
+                )
+
+            # Add context for first message
+            greeting = await self.gpt.generate_response(
+                "",
+                strategy,
+                turn_count=0,
+                additional_context="This is the very first message of the session. Start with a warm greeting and introduction.",
             )
-            greeting = await self.gpt.generate_response("", strategy)
 
             if "update_transcript" in self.ui_callbacks:
                 self.ui_callbacks["update_transcript"](f"Assistant: {greeting}")
@@ -562,6 +577,8 @@ class ConversationOrchestrator:
             await self._speak_with_engagement_tracking(
                 greeting, strategy, 0.5, 0.5
             )
+
+            self.is_first_message = False
 
             # Start auto-advance timer after greeting
             self.start_auto_advance_timer()

@@ -10,6 +10,8 @@ load_dotenv()
 
 # API Keys (now loaded from .env file)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "JBFqnCBsd6RMkjVDRZzb")
 
 # Model configurations
 WHISPER_MODEL = "gpt-4o-transcribe"
@@ -72,7 +74,7 @@ AUTO_ADVANCE_TIMEOUT_SEC = 120  # seconds to wait before auto advancing
 HUME_API_KEY = os.getenv("HUME_API_KEY")
 
 # TTS Engine Selection
-TTS_ENGINE = os.getenv("TTS_ENGINE", "openai")  # "openai" or "hume"
+TTS_ENGINE = os.getenv("TTS_ENGINE", "openai")  # "openai", "hume", or "elevenlabs"
 # Contextual Bandit Configuration
 @dataclass
 class ContextualBanditConfig:

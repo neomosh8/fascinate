@@ -6,7 +6,7 @@ from openai import OpenAI
 import numpy as np
 
 from config import calculate_dynamic_tokens
-from config import GPT_MODEL, MAX_GPT_TOKENS
+from config import GPT_MODEL, MAX_GPT_TOKENS, TTS_ENGINE
 from rl.strategy import Strategy
 
 
@@ -175,6 +175,13 @@ MEMORY CHECK: Before responding, consider:
 3. Are they showing frustration with my approach?
 4. How can I build on their last response rather than starting fresh?
 """
+
+        if TTS_ENGINE.lower() == "elevenlabs":
+            system_prompt += (
+                "\nELEVENLABS TTS GUIDELINES:\n"
+                "- Use ElevenLabs audio tags like [whispers], [laughs], [shout], [sighs].\n"
+                "- Capitalization and punctuation affect delivery.\n"
+            )
 
         # Add risk instructions if statistically significant risk detected
         if risk_instructions:

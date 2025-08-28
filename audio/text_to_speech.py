@@ -14,7 +14,14 @@ import queue
 import time
 import logging
 
-from config import OPENAI_API_KEY, TTS_VOICE, HUME_API_KEY, TTS_ENGINE
+from config import (
+    OPENAI_API_KEY,
+    TTS_VOICE,
+    HUME_API_KEY,
+    TTS_ENGINE,
+    ELEVENLABS_API_KEY,
+    ELEVENLABS_VOICE_ID,
+)
 from rl.strategy import Strategy
 
 # Hume imports
@@ -25,6 +32,14 @@ try:
 except ImportError:
     print("⚠️ Hume SDK not available. Install with: pip install hume")
     HUME_AVAILABLE = False
+
+# ElevenLabs imports
+try:
+    from elevenlabs.client import ElevenLabs
+    ELEVEN_AVAILABLE = True
+except ImportError:
+    print("⚠️ ElevenLabs SDK not available. Install with: pip install elevenlabs")
+    ELEVEN_AVAILABLE = False
 
 # PyAudio imports for true streaming
 try:
@@ -116,7 +131,7 @@ class StreamingAudioPlayer:
         self.audio.terminate()
 
 class TextToSpeech:
-    """Handles text-to-speech conversion using OpenAI or Hume with pygame integration."""
+    """Handles text-to-speech conversion using OpenAI, Hume, or ElevenLabs with pygame integration."""
 
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
@@ -139,9 +154,21 @@ class TextToSpeech:
             except Exception as e:
                 print(f"⚠️ Failed to initialize Hume client: {e}")
 
+        # Initialize ElevenLabs client if selected
+        self.eleven_client = None
+        if self.engine == "elevenlabs" and ELEVEN_AVAILABLE and ELEVENLABS_API_KEY:
+            try:
+                self.eleven_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+                print("✅ ElevenLabs client initialized")
+            except Exception as e:
+                print(f"⚠️ Failed to initialize ElevenLabs client: {e}")
+
         # Validate configuration
         if self.engine == "hume" and (not HUME_AVAILABLE or not self.hume_client):
             print("⚠️ Hume not available, falling back to OpenAI")
+            self.engine = "openai"
+        elif self.engine == "elevenlabs" and (not ELEVEN_AVAILABLE or not self.eleven_client):
+            print("⚠️ ElevenLabs not available, falling back to OpenAI")
             self.engine = "openai"
         elif self.engine == "openai" and not OPENAI_API_KEY:
             print("⚠️ OpenAI API key not found")
@@ -735,6 +762,65 @@ class TextToSpeech:
         except Exception as e:
             print(f"OpenAI TTS error: {e}")
             return start_time, start_time
+
+    async def _speak_with_elevenlabs(self, text: str, strategy: Strategy, user_emotion: float, user_engagement: float,
+                                     voice: Optional[str] = None) -> Tuple[float, float]:
+        """Generate speech using ElevenLabs TTS API."""
+        voice_id = voice or ELEVENLABS_VOICE_ID
+        start_time = asyncio.get_event_loop().time()
+
+        try:
+            loop = asyncio.get_event_loop()
+
+            def _generate():
+                audio = self.eleven_client.text_to_speech.convert(
+                    voice_id,
+                    model_id="eleven_multilingual_v2",
+                    text=text,
+                    output_format="mp3_44100_128",
+                    voice_settings={
+                        "stability": 0,
+                        "similarity_boost": 0,
+                        "use_speaker_boost": True,
+                        "speed": 1.0,
+                    },
+                )
+                if isinstance(audio, bytes):
+                    return audio
+                return b"".join(audio)
+
+            audio_data = await loop.run_in_executor(None, _generate)
+
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            temp_file.write(audio_data)
+            temp_file.close()
+            self.current_audio_file = temp_file.name
+
+            pygame.mixer.music.load(self.current_audio_file)
+            pygame.mixer.music.play()
+            self.is_playing = True
+            tts_start = asyncio.get_event_loop().time()
+
+            while pygame.mixer.music.get_busy() and not self.interrupted:
+                await asyncio.sleep(0.1)
+
+            tts_end = asyncio.get_event_loop().time()
+            self.is_playing = False
+
+            try:
+                os.unlink(self.current_audio_file)
+            except Exception:
+                pass
+            self.current_audio_file = None
+
+            if self.interrupted:
+                print("🛑 ElevenLabs TTS interrupted")
+
+            return tts_start, tts_end
+
+        except Exception as e:
+            print(f"ElevenLabs TTS error: {e}")
+            return start_time, start_time
     async def speak(
             self,
             text: str,
@@ -768,6 +854,8 @@ class TextToSpeech:
                 return await self._speak_with_hume_true_streaming(text, strategy, user_emotion, user_engagement, voice)
             else:  # standard - allows dynamic voice generation
                 return await self._speak_with_hume(text, strategy, user_emotion, user_engagement, voice)
+        elif self.engine == "elevenlabs" and self.eleven_client:
+            return await self._speak_with_elevenlabs(text, strategy, user_emotion, user_engagement, voice)
         else:
             return await self._speak_with_openai(text, strategy, user_emotion, user_engagement, voice)
 

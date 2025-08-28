@@ -797,7 +797,8 @@ class TextToSpeech:
                         text=text,
                         voice_id=voice_id,
                         model_id=ELEVENLABS_MODEL_ID,
-                        output_format="mp3_44100_128",
+                        # Request raw PCM to avoid white noise from MP3 bytes
+                        output_format="pcm_16000",
                         voice_settings={
                             "stability": 0.5,
                             "similarity_boost": 1.0,
@@ -814,7 +815,7 @@ class TextToSpeech:
                     stream = p.open(
                         format=pyaudio.paInt16,
                         channels=1,
-                        rate=44100,
+                        rate=16000,
                         output=True,
                         frames_per_buffer=1024
                     )

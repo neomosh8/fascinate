@@ -15,7 +15,6 @@ class Strategy:
     emotion: str
     hook: str
     index: int
-    exploration_mode: bool = True
 
     def __post_init__(self):
         # Memory of best/worst responses for this strategy

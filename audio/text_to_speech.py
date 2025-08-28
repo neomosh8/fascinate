@@ -771,32 +771,76 @@ class TextToSpeech:
         voice_id = voice or ELEVENLABS_VOICE_ID
         start_time = asyncio.get_event_loop().time()
 
+        # Reset interruption flag
+        self.interrupted = False
+
         try:
             loop = asyncio.get_event_loop()
 
+            # Create a thread-safe flag for interruption
+            import threading
+            stop_event = threading.Event()
+
             def _stream_audio():
-                audio_stream = self.eleven_client.text_to_speech.stream(
-                    text=text,
-                    voice_id=voice_id,
-                    model_id=ELEVENLABS_MODEL_ID,
-                    output_format="mp3_44100_128",
-                    voice_settings={
-                        "stability": 0,
-                        "similarity_boost": 1.0,
-                        "use_speaker_boost": True,
-                        "speed": 1.0,
-                    },
-                )
-                self.is_playing = True
-                el_stream(audio_stream)
-                self.is_playing = False
+                """Stream audio with interruption support."""
+                try:
+                    audio_stream = self.eleven_client.text_to_speech.stream(
+                        text=text,
+                        voice_id=voice_id,
+                        model_id=ELEVENLABS_MODEL_ID,
+                        output_format="mp3_44100_128",
+                        voice_settings={
+                            "stability": 0.5,
+                            "similarity_boost": 1.0,
+                            "use_speaker_boost": True,
+                            "speed": 1.0,
+                        },
+                    )
+
+                    self.is_playing = True
+
+                    # Use custom streaming with interruption checking
+                    import pyaudio
+                    p = pyaudio.PyAudio()
+                    stream = p.open(
+                        format=pyaudio.paInt16,
+                        channels=1,
+                        rate=44100,
+                        output=True,
+                        frames_per_buffer=1024
+                    )
+
+                    try:
+                        for chunk in audio_stream:
+                            # Check for interruption
+                            if self.interrupted or stop_event.is_set():
+                                self.logger.info("ElevenLabs TTS interrupted")
+                                break
+                            stream.write(chunk)
+
+                    finally:
+                        stream.stop_stream()
+                        stream.close()
+                        p.terminate()
+                        self.is_playing = False
+
+                except Exception as e:
+                    self.logger.error(f"ElevenLabs streaming error: {e}")
+                    self.is_playing = False
+
+            # Store stop event for interruption
+            self._elevenlabs_stop_event = stop_event
 
             await loop.run_in_executor(None, _stream_audio)
             tts_end = asyncio.get_event_loop().time()
+
+            if self.interrupted:
+                self.logger.info("ElevenLabs TTS was interrupted")
+
             return start_time, tts_end
 
         except Exception as e:
-            print(f"ElevenLabs TTS streaming error: {e}")
+            self.logger.error(f"ElevenLabs TTS error: {e}")
             return start_time, start_time
     async def speak(
             self,
@@ -844,6 +888,10 @@ class TextToSpeech:
         if self.is_playing:
             pygame.mixer.music.stop()
             self.is_playing = False
+
+        # Stop ElevenLabs if active
+        if hasattr(self, '_elevenlabs_stop_event'):
+            self._elevenlabs_stop_event.set()
 
         # Clean up temp file
         if self.current_audio_file and os.path.exists(self.current_audio_file):

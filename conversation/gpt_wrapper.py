@@ -273,8 +273,8 @@ MEMORY CHECK: Before responding, consider:
                     "input": messages,
                 }
                 # Only cap output tokens in exploration mode
-                if getattr(strategy, "exploration_mode", True):
-                    api_params["max_output_tokens"] = max_tokens  # Responses API uses this field
+                # if getattr(strategy, "exploration_mode", True):
+                #     api_params["max_output_tokens"] = max_tokens  # Responses API uses this field
 
                 return self.client.responses.create(**api_params)
 

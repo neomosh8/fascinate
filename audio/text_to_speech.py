@@ -184,262 +184,262 @@ class TextToSpeech:
         elif self.engine == "openai" and not OPENAI_API_KEY:
             print("⚠️ OpenAI API key not found")
 
-    def _strategy_to_hume_description(self, strategy: Strategy, user_emotion: float, user_engagement: float,
-                                      has_voice: bool = False) -> str:
-        """Convert strategy to Hume-compatible description following official best practices."""
+    # def _strategy_to_hume_description(self, strategy: Strategy, user_emotion: float, user_engagement: float,
+    #                                   has_voice: bool = False) -> str:
+    #     """Convert strategy to Hume-compatible description following official best practices."""
+    #
+    #     if has_voice:
+    #         # ACTING INSTRUCTIONS: Concise directions (≤100 chars) when voice is specified
+    #         instructions = []
+    #
+    #         # Map strategy components to precise, concise terms
+    #         tone_instructions = {
+    #             "professional": "composed, authoritative presence",
+    #             "friendly": "warm, welcoming energy",
+    #             "empathetic": "compassionate, deeply understanding",
+    #             "playful": "gentle humor, lighthearted warmth",
+    #             "confident": "steady, reassuring presence",
+    #             "kind": "tender, nurturing care",
+    #             "sarcastic": "subtle irony, knowing smile",
+    #             "informational": "clear, educational guidance",
+    #             "calm": "serene, grounding presence",
+    #
+    #             # Additional therapeutic tones
+    #             "validating": "accepting, affirming presence",
+    #             "gentle": "soft, careful approach",
+    #             "reflective": "thoughtful, contemplative",
+    #             "supportive": "encouraging, uplifting",
+    #             "curious": "interested, gently probing",
+    #         }
+    #         #also approach for therapeutic
+    #         emotion_instructions = {
+    #             # Original emotions
+    #             "happy": "joyful, radiant energy",
+    #             "serious": "focused, weighty presence",
+    #             "thoughtful": "contemplative, reflective pause",
+    #             "angry": "controlled intensity, firm",
+    #             "flirting": "playful charm, teasing warmth",
+    #             "sad": "gentle melancholy, tender",
+    #             "scared": "cautious, protective whisper",
+    #             "worried": "concerned, attentive care",
+    #             "whisper": "intimate, hushed confidence",
+    #             "laughter": "amused, joyful lightness",
+    #
+    #             # Therapeutic approaches
+    #             "cognitive": "structured, clear reasoning",
+    #             "mindful": "present, grounded awareness",
+    #             "exploratory": "curious, gentle discovery",
+    #             "validating": "accepting, affirming truth",
+    #             "somatic": "body-aware, gentle attunement",
+    #             "narrative": "story-weaving, reflective",
+    #         }
+    #
+    #         # Build concise acting instruction
+    #         base_tone = strategy.tone.lower()
+    #         if base_tone in tone_instructions:
+    #             instructions.append(tone_instructions[base_tone])
+    #
+    #         base_emotion = strategy.emotion.lower()
+    #         if base_emotion in emotion_instructions:
+    #             instructions.append(emotion_instructions[base_emotion])
+    #
+    #         # Add user state adaptations (very concise)
+    #         if user_emotion < 0.4:
+    #             instructions.append("extra tender, protective")
+    #         elif user_emotion > 0.6:
+    #             instructions.append("upbeat and energetic")
+    #
+    #         if user_engagement < 0.4:
+    #             instructions.append("drawing them in, captivating")
+    #         elif user_engagement > 0.7:  # High engagement
+    #             instructions.append("building momentum")
+    #
+    #         # Combine and ensure ≤100 characters
+    #         acting_instruction = ", ".join(instructions)
+    #
+    #         return acting_instruction
 
-        if has_voice:
-            # ACTING INSTRUCTIONS: Concise directions (≤100 chars) when voice is specified
-            instructions = []
+    # def _get_hume_speed_from_strategy(self, strategy: Strategy, user_emotion: float, user_engagement: float) -> float:
+    #     """Calculate Hume speed parameter (0.25-3.0) from strategy with therapeutic awareness."""
+    #
+    #     # Get base TTS parameters (handle both regular and therapeutic strategies)
+    #     try:
+    #         tts_params = strategy.get_emotion_adapted_tts_params(user_emotion, user_engagement)
+    #         base_speed = tts_params["speed"]
+    #     except (AttributeError, KeyError):
+    #         # Fallback for strategies without TTS params
+    #         base_speed = 1.0
+    #
+    #     # Map from OpenAI-style speed (0.7-1.3) to Hume range (0.25-3.0)
+    #     # More granular mapping for better control
+    #     if base_speed <= 0.75:
+    #         hume_speed = 0.6  # Very slow for deep therapy
+    #     elif base_speed <= 0.85:
+    #         hume_speed = 0.75  # Slow for empathetic/gentle
+    #     elif base_speed <= 0.95:
+    #         hume_speed = 0.9  # Slightly slow
+    #     elif base_speed <= 1.05:
+    #         hume_speed = 1.0  # Normal pace
+    #     elif base_speed <= 1.15:
+    #         hume_speed = 1.2  # Slightly faster
+    #     elif base_speed <= 1.25:
+    #         hume_speed = 1.4  # Faster
+    #     else:
+    #         hume_speed = 1.6  # Energetic
+    #
+    #     # Strategy-specific adjustments
+    #     tone = strategy.tone.lower()
+    #     emotion_or_approach = strategy.emotion.lower()
+    #
+    #     # Tone-based adjustments (works for both regular and therapeutic)
+    #     if tone in ["gentle", "empathetic", "calm", "validating"]:
+    #         hume_speed *= 0.85  # Slower for therapeutic tones
+    #     elif tone in ["confident", "professional"]:
+    #         hume_speed *= 1.1  # Slightly faster for assertive tones
+    #     elif tone in ["playful", "friendly"]:
+    #         hume_speed *= 1.05  # Slightly faster for engaging tones
+    #
+    #     # Emotion/Approach-based adjustments
+    #     slow_emotions = ["whisper", "sad", "scared", "gentle melancholy",
+    #                      "somatic", "mindful", "reflective"]
+    #     fast_emotions = ["happy", "excited", "angry", "laughter",
+    #                      "cognitive", "exploratory"]
+    #
+    #     if emotion_or_approach in slow_emotions:
+    #         hume_speed *= 0.8  # Slower for contemplative emotions/approaches
+    #     elif emotion_or_approach in fast_emotions:
+    #         hume_speed *= 1.15  # Faster for energetic emotions/approaches
+    #
+    #     # User state adaptations
+    #     if user_emotion < 0.3:
+    #         hume_speed *= 0.85  # Much slower for very withdrawn users
+    #     elif user_emotion < 0.4:
+    #         hume_speed *= 0.9  # Slower for withdrawn users
+    #     elif user_emotion > 0.7:
+    #         hume_speed *= 1.1  # Faster for very positive users
+    #
+    #     if user_engagement < 0.3:
+    #         hume_speed *= 1.1  # Slightly faster to re-engage
+    #     elif user_engagement > 0.8:
+    #         hume_speed *= 0.95  # Slightly slower to maintain deep engagement
+    #
+    #     # Therapeutic mode special handling
+    #     if hasattr(strategy, 'exploration_mode'):
+    #         if strategy.exploration_mode:
+    #             hume_speed *= 0.95  # Slightly slower for exploration
+    #         else:
+    #             hume_speed *= 0.9  # Slower for deep exploitation
+    #
+    #     # Ensure within Hume's bounds (fixed to match documentation)
+    #     return max(0.25, min(1.3, hume_speed))  # Conservative upper bound
 
-            # Map strategy components to precise, concise terms
-            tone_instructions = {
-                "professional": "composed, authoritative presence",
-                "friendly": "warm, welcoming energy",
-                "empathetic": "compassionate, deeply understanding",
-                "playful": "gentle humor, lighthearted warmth",
-                "confident": "steady, reassuring presence",
-                "kind": "tender, nurturing care",
-                "sarcastic": "subtle irony, knowing smile",
-                "informational": "clear, educational guidance",
-                "calm": "serene, grounding presence",
-
-                # Additional therapeutic tones
-                "validating": "accepting, affirming presence",
-                "gentle": "soft, careful approach",
-                "reflective": "thoughtful, contemplative",
-                "supportive": "encouraging, uplifting",
-                "curious": "interested, gently probing",
-            }
-            #also approach for therapeutic
-            emotion_instructions = {
-                # Original emotions
-                "happy": "joyful, radiant energy",
-                "serious": "focused, weighty presence",
-                "thoughtful": "contemplative, reflective pause",
-                "angry": "controlled intensity, firm",
-                "flirting": "playful charm, teasing warmth",
-                "sad": "gentle melancholy, tender",
-                "scared": "cautious, protective whisper",
-                "worried": "concerned, attentive care",
-                "whisper": "intimate, hushed confidence",
-                "laughter": "amused, joyful lightness",
-
-                # Therapeutic approaches
-                "cognitive": "structured, clear reasoning",
-                "mindful": "present, grounded awareness",
-                "exploratory": "curious, gentle discovery",
-                "validating": "accepting, affirming truth",
-                "somatic": "body-aware, gentle attunement",
-                "narrative": "story-weaving, reflective",
-            }
-
-            # Build concise acting instruction
-            base_tone = strategy.tone.lower()
-            if base_tone in tone_instructions:
-                instructions.append(tone_instructions[base_tone])
-
-            base_emotion = strategy.emotion.lower()
-            if base_emotion in emotion_instructions:
-                instructions.append(emotion_instructions[base_emotion])
-
-            # Add user state adaptations (very concise)
-            if user_emotion < 0.4:
-                instructions.append("extra tender, protective")
-            elif user_emotion > 0.6:
-                instructions.append("upbeat and energetic")
-
-            if user_engagement < 0.4:
-                instructions.append("drawing them in, captivating")
-            elif user_engagement > 0.7:  # High engagement
-                instructions.append("building momentum")
-
-            # Combine and ensure ≤100 characters
-            acting_instruction = ", ".join(instructions)
-
-            return acting_instruction
-
-    def _get_hume_speed_from_strategy(self, strategy: Strategy, user_emotion: float, user_engagement: float) -> float:
-        """Calculate Hume speed parameter (0.25-3.0) from strategy with therapeutic awareness."""
-
-        # Get base TTS parameters (handle both regular and therapeutic strategies)
-        try:
-            tts_params = strategy.get_emotion_adapted_tts_params(user_emotion, user_engagement)
-            base_speed = tts_params["speed"]
-        except (AttributeError, KeyError):
-            # Fallback for strategies without TTS params
-            base_speed = 1.0
-
-        # Map from OpenAI-style speed (0.7-1.3) to Hume range (0.25-3.0)
-        # More granular mapping for better control
-        if base_speed <= 0.75:
-            hume_speed = 0.6  # Very slow for deep therapy
-        elif base_speed <= 0.85:
-            hume_speed = 0.75  # Slow for empathetic/gentle
-        elif base_speed <= 0.95:
-            hume_speed = 0.9  # Slightly slow
-        elif base_speed <= 1.05:
-            hume_speed = 1.0  # Normal pace
-        elif base_speed <= 1.15:
-            hume_speed = 1.2  # Slightly faster
-        elif base_speed <= 1.25:
-            hume_speed = 1.4  # Faster
-        else:
-            hume_speed = 1.6  # Energetic
-
-        # Strategy-specific adjustments
-        tone = strategy.tone.lower()
-        emotion_or_approach = strategy.emotion.lower()
-
-        # Tone-based adjustments (works for both regular and therapeutic)
-        if tone in ["gentle", "empathetic", "calm", "validating"]:
-            hume_speed *= 0.85  # Slower for therapeutic tones
-        elif tone in ["confident", "professional"]:
-            hume_speed *= 1.1  # Slightly faster for assertive tones
-        elif tone in ["playful", "friendly"]:
-            hume_speed *= 1.05  # Slightly faster for engaging tones
-
-        # Emotion/Approach-based adjustments
-        slow_emotions = ["whisper", "sad", "scared", "gentle melancholy",
-                         "somatic", "mindful", "reflective"]
-        fast_emotions = ["happy", "excited", "angry", "laughter",
-                         "cognitive", "exploratory"]
-
-        if emotion_or_approach in slow_emotions:
-            hume_speed *= 0.8  # Slower for contemplative emotions/approaches
-        elif emotion_or_approach in fast_emotions:
-            hume_speed *= 1.15  # Faster for energetic emotions/approaches
-
-        # User state adaptations
-        if user_emotion < 0.3:
-            hume_speed *= 0.85  # Much slower for very withdrawn users
-        elif user_emotion < 0.4:
-            hume_speed *= 0.9  # Slower for withdrawn users
-        elif user_emotion > 0.7:
-            hume_speed *= 1.1  # Faster for very positive users
-
-        if user_engagement < 0.3:
-            hume_speed *= 1.1  # Slightly faster to re-engage
-        elif user_engagement > 0.8:
-            hume_speed *= 0.95  # Slightly slower to maintain deep engagement
-
-        # Therapeutic mode special handling
-        if hasattr(strategy, 'exploration_mode'):
-            if strategy.exploration_mode:
-                hume_speed *= 0.95  # Slightly slower for exploration
-            else:
-                hume_speed *= 0.9  # Slower for deep exploitation
-
-        # Ensure within Hume's bounds (fixed to match documentation)
-        return max(0.25, min(1.3, hume_speed))  # Conservative upper bound
-
-    def _get_trailing_silence_from_strategy(self, strategy: Strategy, user_emotion: float = 0.5,
-                                            user_engagement: float = 0.5) -> float:
-        """Get appropriate trailing silence based on strategy and user state."""
-
-        base_silence = 0.4  # Default pause
-
-        tone = strategy.tone.lower()
-        emotion_or_approach = strategy.emotion.lower()
-
-        # TONE-BASED SILENCE (works for both regular and therapeutic)
-        tone_silence_map = {
-            # Therapeutic tones - longer pauses for processing
-            "empathetic": 0.7,  # Allow emotional processing
-            "validating": 0.6,  # Let affirmation sink in
-            "gentle": 0.8,  # Extra gentle spacing
-            "supportive": 0.5,  # Moderate supportive pause
-            "reflective": 0.9,  # Long pause for reflection
-            "curious": 0.4,  # Shorter for maintaining flow
-
-            # Regular tones
-            "kind": 0.6,  # Caring pause
-            "calm": 0.7,  # Peaceful spacing
-            "professional": 0.3,  # Efficient timing
-            "confident": 0.3,  # Assertive timing
-            "playful": 0.2,  # Quick, energetic
-            "friendly": 0.4,  # Natural conversation
-            "sarcastic": 0.5,  # Let sarcasm land
-            "informational": 0.3,  # Clear, direct
-        }
-
-        # EMOTION/APPROACH-BASED SILENCE
-        emotion_silence_map = {
-            # Contemplative emotions - longer pauses
-            "thoughtful": 1.0,
-            "serious": 0.8,
-            "sad": 0.9,
-            "reflective": 1.0,
-            "worried": 0.7,
-
-            # Gentle emotions - medium pauses
-            "whisper": 0.8,
-            "scared": 0.6,
-
-            # Energetic emotions - shorter pauses
-            "happy": 0.3,
-            "excited": 0.2,
-            "laughter": 0.1,
-            "playful": 0.2,
-
-            # Therapeutic approaches
-            "mindful": 0.9,  # Allow mindful processing
-            "somatic": 1.0,  # Body awareness needs time
-            "narrative": 0.7,  # Story processing
-            "cognitive": 0.5,  # Structured thinking
-            "exploratory": 0.6,  # Gentle discovery
-            "validating": 0.6,  # Affirmation processing
-        }
-
-        # Start with tone-based silence
-        if tone in tone_silence_map:
-            base_silence = tone_silence_map[tone]
-
-        # Override with emotion/approach if more specific
-        if emotion_or_approach in emotion_silence_map:
-            emotion_silence = emotion_silence_map[emotion_or_approach]
-            # Use the longer of tone or emotion silence (more contemplative)
-            base_silence = max(base_silence, emotion_silence)
-
-        # USER STATE ADAPTATIONS
-
-        # User emotional state adjustments
-        if user_emotion < 0.3:
-            base_silence *= 1.4  # Much longer pause for very distressed users
-        elif user_emotion < 0.4:
-            base_silence *= 1.2  # Longer pause for withdrawn users
-        elif user_emotion > 0.7:
-            base_silence *= 0.8  # Shorter pause for positive users
-
-        # User engagement adjustments
-        if user_engagement < 0.3:
-            base_silence *= 0.7  # Shorter pause to re-engage lost users
-        elif user_engagement > 0.8:
-            base_silence *= 1.1  # Slightly longer to maintain deep engagement
-
-        # THERAPEUTIC MODE SPECIAL HANDLING
-        if hasattr(strategy, 'exploration_mode'):
-            if strategy.exploration_mode:
-                base_silence *= 1.1  # Longer pauses for exploration (let things settle)
-            else:
-                base_silence *= 1.3  # Much longer for exploitation (deep processing)
-
-        # CONTEXT-AWARE BOUNDS
-        # Ensure silence is appropriate for the context
-        if user_engagement < 0.2:
-            # Very disengaged - don't let silence get too long
-            max_silence = 0.8
-        elif hasattr(strategy, 'exploration_mode') and not strategy.exploration_mode:
-            # Deep exploitation mode - allow longer silences
-            max_silence = 1.5
-        else:
-            # Normal conversation
-            max_silence = 1.2
-
-        # Final bounds with context awareness
-        final_silence = max(0.1, min(max_silence, base_silence))
-
-        return round(final_silence, 1)  # Round to 1 decimal for cleaner values
+    # def _get_trailing_silence_from_strategy(self, strategy: Strategy, user_emotion: float = 0.5,
+    #                                         user_engagement: float = 0.5) -> float:
+    #     """Get appropriate trailing silence based on strategy and user state."""
+    #
+    #     base_silence = 0.4  # Default pause
+    #
+    #     tone = strategy.tone.lower()
+    #     emotion_or_approach = strategy.emotion.lower()
+    #
+    #     # TONE-BASED SILENCE (works for both regular and therapeutic)
+    #     tone_silence_map = {
+    #         # Therapeutic tones - longer pauses for processing
+    #         "empathetic": 0.7,  # Allow emotional processing
+    #         "validating": 0.6,  # Let affirmation sink in
+    #         "gentle": 0.8,  # Extra gentle spacing
+    #         "supportive": 0.5,  # Moderate supportive pause
+    #         "reflective": 0.9,  # Long pause for reflection
+    #         "curious": 0.4,  # Shorter for maintaining flow
+    #
+    #         # Regular tones
+    #         "kind": 0.6,  # Caring pause
+    #         "calm": 0.7,  # Peaceful spacing
+    #         "professional": 0.3,  # Efficient timing
+    #         "confident": 0.3,  # Assertive timing
+    #         "playful": 0.2,  # Quick, energetic
+    #         "friendly": 0.4,  # Natural conversation
+    #         "sarcastic": 0.5,  # Let sarcasm land
+    #         "informational": 0.3,  # Clear, direct
+    #     }
+    #
+    #     # EMOTION/APPROACH-BASED SILENCE
+    #     emotion_silence_map = {
+    #         # Contemplative emotions - longer pauses
+    #         "thoughtful": 1.0,
+    #         "serious": 0.8,
+    #         "sad": 0.9,
+    #         "reflective": 1.0,
+    #         "worried": 0.7,
+    #
+    #         # Gentle emotions - medium pauses
+    #         "whisper": 0.8,
+    #         "scared": 0.6,
+    #
+    #         # Energetic emotions - shorter pauses
+    #         "happy": 0.3,
+    #         "excited": 0.2,
+    #         "laughter": 0.1,
+    #         "playful": 0.2,
+    #
+    #         # Therapeutic approaches
+    #         "mindful": 0.9,  # Allow mindful processing
+    #         "somatic": 1.0,  # Body awareness needs time
+    #         "narrative": 0.7,  # Story processing
+    #         "cognitive": 0.5,  # Structured thinking
+    #         "exploratory": 0.6,  # Gentle discovery
+    #         "validating": 0.6,  # Affirmation processing
+    #     }
+    #
+    #     # Start with tone-based silence
+    #     if tone in tone_silence_map:
+    #         base_silence = tone_silence_map[tone]
+    #
+    #     # Override with emotion/approach if more specific
+    #     if emotion_or_approach in emotion_silence_map:
+    #         emotion_silence = emotion_silence_map[emotion_or_approach]
+    #         # Use the longer of tone or emotion silence (more contemplative)
+    #         base_silence = max(base_silence, emotion_silence)
+    #
+    #     # USER STATE ADAPTATIONS
+    #
+    #     # User emotional state adjustments
+    #     if user_emotion < 0.3:
+    #         base_silence *= 1.4  # Much longer pause for very distressed users
+    #     elif user_emotion < 0.4:
+    #         base_silence *= 1.2  # Longer pause for withdrawn users
+    #     elif user_emotion > 0.7:
+    #         base_silence *= 0.8  # Shorter pause for positive users
+    #
+    #     # User engagement adjustments
+    #     if user_engagement < 0.3:
+    #         base_silence *= 0.7  # Shorter pause to re-engage lost users
+    #     elif user_engagement > 0.8:
+    #         base_silence *= 1.1  # Slightly longer to maintain deep engagement
+    #
+    #     # THERAPEUTIC MODE SPECIAL HANDLING
+    #     if hasattr(strategy, 'exploration_mode'):
+    #         if strategy.exploration_mode:
+    #             base_silence *= 1.1  # Longer pauses for exploration (let things settle)
+    #         else:
+    #             base_silence *= 1.3  # Much longer for exploitation (deep processing)
+    #
+    #     # CONTEXT-AWARE BOUNDS
+    #     # Ensure silence is appropriate for the context
+    #     if user_engagement < 0.2:
+    #         # Very disengaged - don't let silence get too long
+    #         max_silence = 0.8
+    #     elif hasattr(strategy, 'exploration_mode') and not strategy.exploration_mode:
+    #         # Deep exploitation mode - allow longer silences
+    #         max_silence = 1.5
+    #     else:
+    #         # Normal conversation
+    #         max_silence = 1.2
+    #
+    #     # Final bounds with context awareness
+    #     final_silence = max(0.1, min(max_silence, base_silence))
+    #
+    #     return round(final_silence, 1)  # Round to 1 decimal for cleaner values
 
     def _strategy_to_openai_instructions(self, strategy: Strategy, user_emotion: float, user_engagement: float) -> str:
         """Convert strategy to OpenAI TTS instructions (existing method)."""

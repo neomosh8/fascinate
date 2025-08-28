@@ -103,58 +103,136 @@ def calculate_dynamic_tokens(turn_count: int) -> int:
 # This dictionary is the new "brain" for selecting and describing approaches.
 # The descriptions are crafted to be both human-readable and semantically rich for embedding.
 THERAPEUTIC_MODALITIES = {
-    "ifs": {
+    # Third-Wave CBT Approaches
+    "act": {
         "description": (
-            "an Internal Family Systems (IFS) approach. Gently personify the user's feelings "
-            "as 'parts' of them (e.g., 'a part of you that feels tension,' 'the playful part'). "
-            "Explore the positive intention behind each part, especially the protective ones. "
-            "The goal is to foster curiosity and compassion for their inner world."
+            "Acceptance and Commitment Therapy (ACT) approach. Focus on psychological flexibility - "
+            "help them accept difficult emotions rather than fighting them. Guide toward values clarification "
+            "(e.g., 'What truly matters to you?'). Use defusion techniques to reduce the power of thoughts "
+            "(e.g., 'Notice the thought without becoming the thought'). Encourage committed action aligned "
+            "with their values. Use metaphors like 'thoughts as clouds passing by'."
+        )
+    },
+    "dbt": {
+        "description": (
+            "Dialectical Behavior Therapy (DBT) approach. Hold the dialectic - two truths can exist "
+            "simultaneously (e.g., 'You're doing your best AND you can change'). Focus on distress tolerance, "
+            "emotion regulation, and interpersonal effectiveness. Validate their experience completely while "
+            "also encouraging change. Use TIPP skills for crisis moments (Temperature, Intense exercise, "
+            "Paced breathing, Paired muscle relaxation)."
+        )
+    },
+    "mbct": {
+        "description": (
+            "Mindfulness-Based Cognitive Therapy (MBCT) approach. Guide present-moment awareness without "
+            "judgment. Help them observe thoughts and emotions as temporary mental events, not facts. "
+            "Use body scan techniques and breathing spaces. Encourage decentering - stepping back from "
+            "thoughts to see them as mental events that come and go."
+        )
+    },
+
+    # Trauma-Focused Approaches
+    "emdr": {
+        "description": (
+            "EMDR-informed conversational approach. Help them notice what they're feeling in their body "
+            "when discussing difficult memories. Use bilateral stimulation metaphors (e.g., 'imagine "
+            "watching this memory like scenery from a moving train'). Focus on dual awareness - they're "
+            "safe in the present while reviewing the past. Build resources before processing."
         )
     },
     "somatic": {
         "description": (
-            "a Somatic (body-based) approach. Guide the user to notice the physical sensations "
-            "connected to their emotions (e.g., 'Where do you feel that in your body?'). "
-            "Focus on tracking sensations like heat, tension, or energy without judgment. "
-            "The goal is to help them process emotions through the body."
+            "Somatic Experiencing approach. Guide attention to body sensations and nervous system states. "
+            "Use titration - work with small amounts of activation. Practice pendulation - moving between "
+            "comfort and discomfort. Help them notice where they feel calm or resourced in their body. "
+            "Track sensation changes (e.g., 'What happens to that tightness now?'). Support discharge "
+            "of trapped survival energy through gentle movement or breath."
         )
     },
-    "narrative": {
+    "ifs": {
         "description": (
-            "a Narrative Therapy approach. Focus on the 'story' the user is telling about the problem. "
-            "Help them externalize the problem (e.g., 'What has The Anxiety been telling you?'). "
-            "Look for 'exceptions' or moments when the problem wasn't in charge. "
-            "The goal is to help them see themselves as separate from the problem and re-author their story."
+            "Internal Family Systems (IFS) approach. Help them identify different 'parts' of themselves "
+            "(e.g., 'A part of you feels angry, another part feels scared'). Explore protective parts with "
+            "curiosity, not judgment. Ask 'How old is this part?' or 'What is this part trying to protect?' "
+            "Access their core Self - the calm, curious, compassionate center. Unburden exiled parts by "
+            "witnessing their pain with self-compassion."
         )
     },
-    "cbt": {
+
+    # Integrative Approaches
+    "polyvagal": {
         "description": (
-            "a Cognitive Behavioral Therapy (CBT) approach. Focus on the link between a thought, a feeling, and a behavior. "
-            "Gently help the user identify the specific thoughts that arise with the target feeling. "
-            "You might explore the evidence for that thought or consider alternative perspectives. "
-            "The goal is to challenge and reframe unhelpful thought patterns."
+            "Polyvagal-informed approach. Help them understand their nervous system states (ventral vagal = "
+            "safe/social, sympathetic = fight/flight, dorsal vagal = shutdown). Co-regulate through your "
+            "calm presence and prosody. Use orienting exercises to activate ventral vagal. Notice signs "
+            "of state shifts in real-time. Build their nervous system resilience through safe connection."
         )
     },
-    "solution_focused": {
+    "metacognitive": {
         "description": (
-            "a Solution-Focused Brief Therapy (SFBT) approach. Keep the focus on the future and potential solutions. "
-            "Use questions that presuppose change, like the 'Miracle Question' (e.g., 'If this feeling was gone tomorrow, "
-            "what would be the first small thing you'd notice?'). Look for the user's existing strengths and resources."
+            "Meta-Cognitive Therapy (MCT) approach. Focus on how they relate to their thoughts, not the "
+            "content. Address worry and rumination patterns. Challenge metacognitive beliefs like 'worrying "
+            "helps me prepare' or 'I must control my thoughts'. Use attention training to develop flexible "
+            "control. Implement detached mindfulness - aware but not engaged with thoughts."
+        )
+    },
+    "fap": {
+        "description": (
+            "Functional Analytic Psychotherapy (FAP) approach. Focus on what's happening between you and "
+            "them right now. Notice their interpersonal patterns showing up in session. Provide immediate, "
+            "authentic feedback about impact. Reinforce brave, vulnerable moments. Create corrective "
+            "experiences through the therapeutic relationship itself."
         )
     }
 }
 
+# --- EVIDENCE-BASED THERAPEUTIC TONES ---
+THERAPEUTIC_TONES = [
+    "validating",  # Core DBT principle - radical acceptance
+    "curious",  # IFS/exploratory stance
+    "compassionate",  # Self-compassion focus
+    "grounding",  # Somatic/polyvagal
+    "collaborative",  # Partnership model
+    "containing",  # Holding difficult emotions
+    "attuned"  # Interpersonal neurobiology
+]
+
+# --- THERAPEUTIC EXPLORATION DOMAINS ---
+# Based on ACT values domains and common therapy focuses
+EXPLORATION_DOMAINS = [
+    "relationships",  # Attachment, connection
+    "identity",  # Self-concept, authenticity
+    "emotions",  # Feeling states, regulation
+    "body",  # Somatic awareness, health
+    "meaning",  # Purpose, spirituality
+    "boundaries",  # Limits, assertiveness
+    "childhood",  # Early experiences
+    "work",  # Career, achievement
+    "creativity",  # Expression, play
+    "loss"  # Grief, transitions
+]
+
+# --- THERAPEUTIC PROCESS HOOKS ---
+# Based on MI (Motivational Interviewing) and therapeutic engagement
+THERAPEUTIC_HOOKS = [
+    "What comes up when...",  # Somatic/IFS opening
+    "I'm noticing that...",  # Therapist observation
+    "Help me understand...",  # Curious stance
+    "There's a part of you that...",  # IFS language
+    "What would it be like if...",  # Possibility focus
+    "How does that land with you?",  # Check-in
+    "Where do you feel that?",  # Somatic focus
+    "Both things can be true...",  # DBT dialectic
+    "What matters most here is...",  # Values clarification
+    "Let's slow down with this..."  # Pacing/titration
+]
 # The list of approaches is now derived from the keys of the dictionary.
 THERAPEUTIC_APPROACHES = list(THERAPEUTIC_MODALITIES.keys())
-THERAPEUTIC_TONES = ["empathetic", "validating", "curious", "gentle", "reflective", "supportive"]
-EXPLORATION_DOMAINS = ["childhood", "relationships", "dreams", "fears", "identity", "career", "family"]
-THERAPEUTIC_HOOKS = ["Help me understand...", "I'm curious about...", "Tell me more about...", "What comes up for you...", "It sounds like...", "I'm noticing..."]
-
 
 
 @dataclass
 class TherapyConfig:
-    exploration_turns: int = 3
-    exploitation_turns: int = 5
+    exploration_turns: int = 7
+    exploitation_turns: int = 3
     activation_threshold: float = 0.7
-    min_concept_mentions: int = 2
+    min_concept_mentions: int = 3

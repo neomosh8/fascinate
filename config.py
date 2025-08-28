@@ -16,7 +16,7 @@ ELEVENLABS_MODEL_ID = os.getenv("ELEVENLABS_MODEL_ID", "eleven_v3")
 
 # Model configurations
 WHISPER_MODEL = "gpt-4o-transcribe"
-GPT_MODEL = "gpt-4.1"
+GPT_MODEL = "gpt-5"
 TTS_MODEL = "gpt-4o-mini-tts"  # Updated to use OpenAI TTS
 TTS_VOICE = "coral"  # Default OpenAI voice
 

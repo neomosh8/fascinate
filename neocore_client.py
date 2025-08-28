@@ -10,7 +10,6 @@ import struct
 import time
 from collections import deque
 from typing import List, Tuple, Optional
-import contextlib
 
 import numpy as np
 from scipy import signal
@@ -101,16 +100,10 @@ def build_command(feature_id: int, pdu_id: int, payload: bytes = b"") -> bytes:
     command_id = (feature_id << 9) | (PDU_TYPE_COMMAND << 7) | pdu_id
     return command_id.to_bytes(2, 'big') + payload
 
+
 def build_stream_command(start: bool) -> bytes:
-    """Build start or stop streaming command."""
     payload = b"\x01" if start else b"\x00"
     return build_command(FEATURE_SENSOR_CFG, CMD_STREAM_CTRL, payload)
-
-def build_start_command() -> bytes:
-    return build_stream_command(True)
-
-def build_stop_command() -> bytes:
-    return build_stream_command(False)
 
 
 async def find_device(target_mac: Optional[str] = None) -> str:
@@ -328,7 +321,6 @@ class StableEEGPlotter:
 class EEGStreamer:
     def __init__(self):
         self.plotter = StableEEGPlotter()
-        self.last_packet_time = time.time()
 
     def notification_handler(self, sender: int, data: bytearray):
         try:
@@ -336,33 +328,8 @@ class EEGStreamer:
                 return
             ch1_samples, ch2_samples = parse_eeg_packet(data[2:])
             self.plotter.add_data(ch1_samples, ch2_samples)
-            self.last_packet_time = time.time()
         except Exception as e:
             print(f"Data parsing error: {e}")
-
-    async def monitor_data_flow(self, client: BleakClient):
-        while client.is_connected:
-            await asyncio.sleep(1)
-            if time.time() - self.last_packet_time > 5.0:
-                print("Data flow stopped - attempting restart")
-                await self.restart_streaming(client)
-                self.last_packet_time = time.time()
-
-    async def restart_streaming(self, client: BleakClient):
-        stop_cmd = build_stream_command(False)
-        await client.write_gatt_char(RX_UUID, stop_cmd)
-        await asyncio.sleep(1)
-        start_cmd = build_stream_command(True)
-        await client.write_gatt_char(RX_UUID, start_cmd)
-
-    async def monitor_connection_quality(self, client: BleakClient):
-        while client.is_connected:
-            try:
-                rssi = await client.get_rssi()
-                print(f"RSSI: {rssi} dBm")
-            except Exception:
-                pass
-            await asyncio.sleep(5)
 
     async def stream_data(self, device_address: str):
         print(f"Connecting to {device_address}...")
@@ -380,12 +347,9 @@ class EEGStreamer:
 
             await client.start_notify(TX_UUID, self.notification_handler)
 
-            start_cmd = build_start_command()
+            start_cmd = build_stream_command(True)
             await client.write_gatt_char(RX_UUID, start_cmd, response=False)
             print("EEG streaming started - signal should be stable now!")
-
-            monitor_task = asyncio.create_task(self.monitor_data_flow(client))
-            quality_task = asyncio.create_task(self.monitor_connection_quality(client))
 
             try:
                 while self.plotter.is_active() and client.is_connected:
@@ -393,12 +357,8 @@ class EEGStreamer:
             except KeyboardInterrupt:
                 print("\nStopping stream...")
             finally:
-                for task in (monitor_task, quality_task):
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
                 if client.is_connected:
-                    stop_cmd = build_stop_command()
+                    stop_cmd = build_stream_command(False)
                     await client.write_gatt_char(RX_UUID, stop_cmd, response=False)
                     await client.stop_notify(TX_UUID)
 

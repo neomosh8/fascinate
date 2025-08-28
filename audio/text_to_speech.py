@@ -110,12 +110,21 @@ class StreamingAudioPlayer:
     def interrupt(self):
         """Interrupt playback immediately."""
         self.interrupted = True
-        # Clear the queue
+        self.playing = False  # Stop playback flag
+
+        # Clear the queue immediately
         while not self.audio_queue.empty():
             try:
                 self.audio_queue.get_nowait()
             except queue.Empty:
                 break
+
+        # Stop the stream immediately
+        if self.stream:
+            try:
+                self.stream.stop_stream()
+            except Exception:
+                pass
 
     def stop_playback(self):
         """Stop playback and cleanup."""

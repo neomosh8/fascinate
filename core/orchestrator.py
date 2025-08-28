@@ -92,6 +92,7 @@ class ConversationOrchestrator:
         # Track if a turn is actively being processed
         self.turn_in_progress = False
         self.ai_speaking = False
+        self.processing_lock = asyncio.Lock()  # Prevent concurrent processing
 
         # UI callbacks
         self.ui_callbacks = ui_callbacks or {}
@@ -360,13 +361,19 @@ class ConversationOrchestrator:
             self.ai_speaking = False  # Clear flag immediately
             self.tts.stop()
 
-    async def process_turn(self, audio_data: bytes) -> TurnData:
-        """Process a single conversation turn with turn-based engagement tracking."""
+    async def _process_turn(self, audio_data: bytes) -> TurnData:
+        """Core implementation for processing a single conversation turn."""
 
         # Prevent concurrent turn processing
         if self.turn_in_progress:
             self.logger.warning("Turn already in progress, skipping")
             return
+
+        # IMPORTANT: Stop any ongoing TTS first
+        if self.ai_speaking:
+            self.logger.info("Stopping previous AI speech before new turn")
+            self.tts.stop()
+            await asyncio.sleep(0.2)  # Give time for audio to stop
 
         self.turn_in_progress = True
         try:
@@ -540,6 +547,12 @@ class ConversationOrchestrator:
             self.turn_in_progress = False
             self.start_auto_advance_timer()
 
+    async def process_turn(self, audio_data: bytes) -> TurnData:
+        """Process a single conversation turn with turn-based engagement tracking."""
+
+        async with self.processing_lock:
+            return await self._process_turn(audio_data)
+
     async def run_session(self, client):
         """Run the main conversation session."""
         try:
@@ -626,8 +639,11 @@ class ConversationOrchestrator:
                 and not self.ai_speaking
             ):
                 self.logger.info("Auto-advancing conversation (user silent)")
-                # Create task instead of await to prevent blocking
-                asyncio.create_task(self.process_turn(b""))
+
+                # Use the lock to prevent concurrent processing
+                async with self.processing_lock:
+                    if not self.turn_in_progress and not self.ai_speaking:
+                        await self._process_turn(b"")
 
         except asyncio.CancelledError:
             if "update_countdown" in self.ui_callbacks:

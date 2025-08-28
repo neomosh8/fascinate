@@ -124,7 +124,7 @@ class GPTConversation:
             "content": [part(system_prompt, "input_text")]
         })
 
-        for msg in self.conversation_history[-50:]:
+        for msg in self.conversation_history[-10:]:
             block_type = "input_text" if msg["role"] == "user" else "output_text"
             msgs.append({
                 "role": msg["role"],

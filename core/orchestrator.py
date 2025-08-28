@@ -319,7 +319,7 @@ class ConversationOrchestrator:
                     strategy,
                     user_emotion,
                     user_engagement,
-                    voice="Ava Song",
+                    voice="1SM7GgM6IMuvQlz2BwM3",
                     streaming_mode="true_streaming",
                 )
                 tts_end = time.time()

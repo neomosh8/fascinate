@@ -15,15 +15,11 @@ class EmbeddingService:
         """Embed any text using OpenAI API with simple caching."""
         if not text.strip():
             return np.zeros(1536)
-        if text in self.cache:
-            return self.cache[text]
         response = self.client.embeddings.create(
             model="text-embedding-3-small",
             input=text
         )
-        embedding = np.array(response.data[0].embedding)
-        self.cache[text] = embedding
-        return embedding
+        return np.array(response.data[0].embedding)
 
 
     def embed_strategy(self, strategy: Strategy) -> np.ndarray:

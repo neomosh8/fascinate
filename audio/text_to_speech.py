@@ -21,6 +21,7 @@ from config import (
     TTS_ENGINE,
     ELEVENLABS_API_KEY,
     ELEVENLABS_VOICE_ID,
+    ELEVENLABS_MODEL_ID,
 )
 from rl.strategy import Strategy
 
@@ -36,6 +37,7 @@ except ImportError:
 # ElevenLabs imports
 try:
     from elevenlabs.client import ElevenLabs
+    from elevenlabs import stream as el_stream
     ELEVEN_AVAILABLE = True
 except ImportError:
     print("⚠️ ElevenLabs SDK not available. Install with: pip install elevenlabs")
@@ -765,61 +767,36 @@ class TextToSpeech:
 
     async def _speak_with_elevenlabs(self, text: str, strategy: Strategy, user_emotion: float, user_engagement: float,
                                      voice: Optional[str] = None) -> Tuple[float, float]:
-        """Generate speech using ElevenLabs TTS API."""
+        """Generate speech using ElevenLabs TTS API with streaming playback."""
         voice_id = voice or ELEVENLABS_VOICE_ID
         start_time = asyncio.get_event_loop().time()
 
         try:
             loop = asyncio.get_event_loop()
 
-            def _generate():
-                audio = self.eleven_client.text_to_speech.convert(
-                    voice_id,
-                    model_id="eleven_multilingual_v2",
+            def _stream_audio():
+                audio_stream = self.eleven_client.text_to_speech.stream(
                     text=text,
+                    voice_id=voice_id,
+                    model_id=ELEVENLABS_MODEL_ID,
                     output_format="mp3_44100_128",
                     voice_settings={
                         "stability": 0,
-                        "similarity_boost": 0,
+                        "similarity_boost": 1.0,
                         "use_speaker_boost": True,
                         "speed": 1.0,
                     },
                 )
-                if isinstance(audio, bytes):
-                    return audio
-                return b"".join(audio)
+                self.is_playing = True
+                el_stream(audio_stream)
+                self.is_playing = False
 
-            audio_data = await loop.run_in_executor(None, _generate)
-
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-            temp_file.write(audio_data)
-            temp_file.close()
-            self.current_audio_file = temp_file.name
-
-            pygame.mixer.music.load(self.current_audio_file)
-            pygame.mixer.music.play()
-            self.is_playing = True
-            tts_start = asyncio.get_event_loop().time()
-
-            while pygame.mixer.music.get_busy() and not self.interrupted:
-                await asyncio.sleep(0.1)
-
+            await loop.run_in_executor(None, _stream_audio)
             tts_end = asyncio.get_event_loop().time()
-            self.is_playing = False
-
-            try:
-                os.unlink(self.current_audio_file)
-            except Exception:
-                pass
-            self.current_audio_file = None
-
-            if self.interrupted:
-                print("🛑 ElevenLabs TTS interrupted")
-
-            return tts_start, tts_end
+            return start_time, tts_end
 
         except Exception as e:
-            print(f"ElevenLabs TTS error: {e}")
+            print(f"ElevenLabs TTS streaming error: {e}")
             return start_time, start_time
     async def speak(
             self,
